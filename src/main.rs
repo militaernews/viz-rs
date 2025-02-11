@@ -193,10 +193,10 @@ async fn upload_image(
 
             // Insert or Update Image in DB
             sqlx::query!(
-                "INSERT INTO images (msg_id, chat_id, vector, timestamp)
+                r#"INSERT INTO images (msg_id, chat_id, vector, timestamp)
                  VALUES ($1, $2, $3, $4)
                  ON CONFLICT (msg_id, chat_id)
-                 DO UPDATE SET vector = EXCLUDED.vector, timestamp = EXCLUDED.timestamp",
+                 DO UPDATE SET vector = EXCLUDED.vector, timestamp = EXCLUDED.timestamp"#,
                 params.msg_id,
                 params.chat_id,
                 &features as &[f32],
@@ -248,7 +248,7 @@ async fn find_similar_images(
     limit: i64,
 ) -> Result<Vec<SearchResult>, sqlx::Error> {
     let rows = sqlx::query!(
-        "SELECT msg_id, chat_id, vector <=> $1 AS distance FROM images ORDER BY distance LIMIT $2",
+        r#"SELECT msg_id, chat_id, vector <-> $1 AS distance FROM images ORDER BY distance LIMIT $2"#,
         &query_vector as &[f32],
         limit
     )
