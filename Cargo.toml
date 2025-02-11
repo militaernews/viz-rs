@@ -36,4 +36,6 @@ image = "0.25.5"
 bytes = "1.5"
 pgvector = { version = "0.4", features = ["sqlx"] }
 tch = { version = "0.19.0", features = [ ] }
+anyhow = "1.0.79"
+
 
