@@ -1,31 +1,36 @@
+mod error_handling;
+
+use std::env::var;
 use axum::{
     extract::{Multipart, Query, State},
     routing::post,
     response::Json,
     Router,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use image::DynamicImage;
 use pgvector::Vector;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use sqlx::Pool;
+use sqlx::{PgPool, Pool};
 use sqlx::Postgres;
 use std::net::SocketAddr;
+use axum::extract::FromRef;
 use tch::{nn, nn::Module, vision::resnet, Device, Kind, Tensor};
 use chrono::{DateTime, Utc};
+use dotenvy::dotenv;
 use tch::nn::{ModuleT, VarStore};
 use tch::vision::imagenet;
 use tch::vision::resnet::resnet18;
 use tokio::net::TcpListener;
 use tracing::log::info;
 
-type DbPool = Pool<Postgres>;
 
-#[derive(Clone)]
-struct AppState {
-    db_pool: DbPool,
+
+#[derive(Clone, FromRef)]
+pub struct AppState {
+    pub db_pool: PgPool,
 }
 
 #[derive(Deserialize)]
@@ -51,31 +56,55 @@ struct SearchResult {
 
 // Extract Image Features
 fn extract_features(img: DynamicImage) -> Result<Vec<f32>> {
-    // Resize and convert image to tensor
-
-
-
+    // Create the model and load the pre-trained weights
     let mut vs = VarStore::new(Device::cuda_if_available());
     let model = resnet18(&vs.root(), 1000);
 
+    // Download the safetensors from Hugging Face or load it manually
     vs.load("D:\\dev\\tools\\resnet50.safetensors")?;
 
-    let image = imagenet::load_image_from_memory(img)?
-        .to_device(vs.device());
+    let img = img.resize_exact(224, 224, image::imageops::FilterType::CatmullRom);
+    let rgb = img.to_rgb8();
+    let (width, height) = rgb.dimensions();
 
-    let output = image
-        .unsqueeze(0)
-        .apply_t(&model, false)
-        .softmax(-1, Kind::Float);
+    // Convert image to tensor
+    let img_tensor = Tensor::from_data_size(
+        &rgb.as_flat_samples().samples,
+        &[1, 3, height as i64, width as i64],
+        Kind::Uint8,
+    )
+        .to_kind(Kind::Float) / 255.0;
+
+    // Normalize the tensor (ImageNet normalization)
+    let mean = Tensor::from_slice(&[0.485, 0.456, 0.406]).view([1, 3, 1, 1]);
+    let std = Tensor::from_slice(&[0.229, 0.224, 0.225]).view([1, 3, 1, 1]);
+    let img_tensor = (img_tensor - mean) / std;
 
 
+    // Apply the forward pass of the model to get the output
+    let output = img_tensor
+     //   .unsqueeze(0)  // Add a batch dimension
+        .apply_t(&model, false);
+
+    // Here we extract the features from the second-to-last layer, before the final classification head
+    let features = output.flatten(1,1); // Flatten the output into a 1D feature vector
+
+    // Convert the features into a vector of f32 for further use
+
+
+    let mut vec_f32: Vec<f32> = vec![0.0; features.numel()];
+
+    // Copy the tensor data into the Vec<f32>
+    features.copy_data(&mut vec_f32, features.numel());
+
+    Ok(vec_f32)
 }
 
 
 // Upload or Update Image in Database
 async fn upload_image(
-    State(state): State<AppState>,
     mut multipart: Multipart,
+    State(db_pool): State<PgPool>,
     Query(params): Query<UploadParams>,
 ) -> Json<UploadResponse> {
     let timestamp = params.timestamp.unwrap_or(Utc::now());
@@ -96,10 +125,10 @@ async fn upload_image(
                  DO UPDATE SET vector = EXCLUDED.vector, timestamp = EXCLUDED.timestamp",
                 params.msg_id,
                 params.chat_id,
-                &features as &[f32],
+                &features.unwrap_or(vec![0.0]) as &[f32],
                 timestamp
             )
-                .execute(&state.db_pool)
+                .execute(&db_pool)
                 .await
                 .unwrap();
 
@@ -116,30 +145,34 @@ async fn upload_image(
 
 // Search for Similar Images
 async fn search_similar_images(
-    State(state): State<AppState>,
+    State(db_pool): State<PgPool>,
     mut multipart: Multipart,
-) -> Json<Vec<SearchResult>> {
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        if let Some(filename) = field.file_name() {
-            println!("Searching for similar to: {}", filename);
+) -> Result<Json<Vec<SearchResult>>> {
 
-            let data = field.bytes().await.unwrap();
-            let img = image::load_from_memory(&data).unwrap();
-            let features = extract_features(img);
+    while let Some(mut field) = multipart.next_field().await? {
+        let name = field.name().unwrap().to_string();
+        let data = field.bytes().await?;
+
+        println!("Length of `{}` is {} bytes", name, data.len());
+
+
+
+            let img = image::load_from_memory(&data)?;
+            let features = extract_features(img)?;
 
             // Query DB for similar images
-            let similar_images = find_similar_images(&state.db_pool, features, 5).await.unwrap();
+            let similar_images = find_similar_images(&db_pool, features, 16).await?;
 
-            return Json(similar_images);
-        }
+            return Ok(Json(similar_images));
+
     }
 
-    Json(vec![]) // Return empty if no image found
+    Ok(Json(vec![])) // Return empty if no image found
 }
 
 // Find Similar Images in Database
 async fn find_similar_images(
-    pool: &DbPool,
+    db_pool: &PgPool,
     query_vector: Vec<f32>,
     limit: i64,
 ) -> Result<Vec<SearchResult>, sqlx::Error> {
@@ -148,7 +181,7 @@ async fn find_similar_images(
         &query_vector as &[f32],
         limit
     )
-        .fetch_all(pool)
+        .fetch_all(db_pool)
         .await?;
 
     Ok(rows
@@ -164,22 +197,26 @@ async fn find_similar_images(
 // Set Up Axum Server
 #[tokio::main]
 async fn main() ->Result<()>{
+
+dotenv().ok();
+
+    let database_url =
+        var("DATABASE_URL").map_err(|e| anyhow!("Failed to get DATABASE_URL: {}", e))?;
+
     // Initialize Database Pool
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect("postgres://user:password@localhost/db_name")
+        .connect(&*database_url)
         .await
         .expect("Failed to connect to database");
 
     let state = AppState { db_pool };
 
     let app = Router::new()
-        .route("/upload", post(upload_image)) // Store or Update Image
+     //   .route("/upload", post(upload_image)) // Store or Update Image
         .route("/search", post(search_similar_images)) // Search Images
         .with_state(state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    println!("Server running on {}", addr);
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(&addr).await.expect("Can't start server");
     info!("Server running on {}", addr);
