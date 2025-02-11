@@ -1,274 +1,320 @@
-use std::sync::Arc;
 use axum::{
-    routing::post,
-    Router,
-    response::Json,
+    extract::State,
     http::StatusCode,
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
 };
+use axum::extract::Multipart;
+use chrono::{DateTime, Utc};
+use image::ImageFormat;
+use rust_bert::pipelines::image_feature_extraction::{
+    ImageFeatureExtractionModel, ImageFeatureExtractionOption,
+};
+use dotenvy::dotenv;
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
-use uuid::Uuid;
-use anyhow::{Result, Context};
-use ort::{Environment, SessionBuilder, Value};
-use image::{self, ImageBuffer, Rgb};
-use ndarray::{Array4, Array1};
-use qdrant_client::qdrant::{vectors_config, Condition, CreateCollection, CreateCollectionBuilder, Distance, Filter, OptimizersConfigDiff, PointStruct, ScalarQuantizationBuilder, SearchParamsBuilder, SearchPoints, SearchPointsBuilder, UpsertPointsBuilder, VectorParams, VectorParamsBuilder, VectorsConfig};
-use qdrant_client::{Payload, Qdrant, QdrantError};
-use tower::limit::RateLimit;
-use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
-};
-use std::time::Duration;
-use axum::extract::{FromRef, Multipart, State};
-use tokio::sync::Semaphore;
-use metrics::{counter, gauge};
-
 use serde_json::json;
+use sqlx::{postgres::PgPoolOptions, query_as_unchecked, query_unchecked, Encode, Pool, Postgres};
+use thiserror::Error;
+use tokio;
+use uuid::Uuid;
 
-use tokio::io::AsyncWriteExt;
-use tracing::{info, error, warn};
-
-#[derive(Serialize)]
-struct SimilarityMatch {
-    url: String,
-    similarity: f32,
-    metadata: Option<serde_json::Value>,
-}
-
-#[derive(Serialize)]
-struct SimilarityResponse {
-    matches: Vec<SimilarityMatch>,
-    processing_time_ms: u64,
-}
-
-#[derive(Debug, thiserror::Error)]
+// Custom error types
+#[derive(Error, Debug)]
 enum AppError {
-    #[error("Invalid input: {0}")]
-    InvalidInput(String),
-
-  //  #[error("Database error: {0}")]
-  //  Database(#[from] qdrant_client::Error),
-
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+    #[error("Invalid vector dimensions: expected {expected}, got {actual}")]
+    InvalidVectorDimension { expected: usize, actual: usize },
+    #[error("Invalid request: {0}")]
+    BadRequest(String),
     #[error("Image processing error: {0}")]
-    ImageProcessing(#[from] image::ImageError),
-
- //   #[error("Model inference error: {0}")]
-//    ModelInference(#[from] ort::Error),
-
-    #[error("Internal server error: {0}")]
-    Internal(String),
+    ImageProcessing(String),
+    #[error("Model error: {0}")]
+    Model(String),
 }
 
-impl axum::response::IntoResponse for AppError {
-    fn into_response(self) -> axum::response::Response {
+
+// Convert AppError to axum Response
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
         let (status, message) = match self {
-            AppError::InvalidInput(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-         //   AppError::Database(_) => (StatusCode::SERVICE_UNAVAILABLE, "Database error".to_string()),
-            AppError::ImageProcessing(_) => (StatusCode::BAD_REQUEST, "Invalid image format".to_string()),
-          //  AppError::ModelInference(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Processing error".to_string()),
-            AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            AppError::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+            AppError::InvalidVectorDimension { expected, actual } => (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid vector dimension: expected {expected}, got {actual}"),
+            ),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
         };
 
-        error!(?self, "Request failed");
         (status, Json(json!({ "error": message }))).into_response()
     }
 }
 
-#[derive(Clone, FromRef)]
-pub struct AppState {
-   pub qdrant: Arc<Qdrant>,
-    pub   model_env:      Arc<Environment>,
-   pub concurrent_searches: Arc<Semaphore>,
+type Result<T> = std::result::Result<T, AppError>;
+
+// Constants
+const VECTOR_DIMENSION: usize = 1024;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ImageEntity {
+    id: Uuid,
+    msg_id: String,
+    chat_id: String,
+    vector: Vec<f32>,
+    timestamp: DateTime<Utc>,
 }
 
-const COLLECTION_NAME: &str = "images";
-const VECTOR_SIZE: usize = 512;
-const MAX_CONCURRENT_SEARCHES: usize = 10;
+#[derive(Debug, Deserialize)]
+struct SearchRequest {
+    query_vector: Vec<f32>,
+    limit: Option<i32>,
+    chat_id: Option<String>,
+    min_similarity: Option<f32>,
+}
 
-async fn initialize_qdrant(client: &Qdrant) -> Result<()> {
-    // Create collection if it doesn't exist
-    let create_collection = CreateCollection {
-        collection_name: COLLECTION_NAME.to_string(),
-        vectors_config: Some(VectorsConfig {
-            config: Some(vectors_config::Config::Params(VectorParams {
-                size: VECTOR_SIZE as u64,
-                distance: Distance::Cosine.into(),
-                ..Default::default()
-            })),
-        }),
-        optimizers_config: Some(OptimizersConfigDiff {
-            indexing_threshold: Some(20000), // Start indexing after 20k points
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+#[derive(Debug, Serialize)]
+struct SearchResult {
+    msg_id: String,
+    chat_id: String,
+    similarity: f32,
+    timestamp: DateTime<Utc>,
+}
 
-    client
-        .create_collection(&create_collection)
-        .await
-        .or_else(|e| {
-            if e.to_string().contains("already exists") {
-                Ok(())
-            } else {
-                Err(e)
-            }
-        })?;
-
-    Ok(())
+#[derive(Clone)]
+struct AppState {
+    db: Pool<Postgres>,
+    model: ImageFeatureExtractionModel,
 }
 
 async fn process_image(
-    img_path: &str,
-    model_env: Arc<Environment>
-) -> Result<Array1<f32>, AppError> {
-    let img = image::open(img_path)
-        .context("Failed to open image")?;
+    model: &ImageFeatureExtractionModel,
+    image_data: &[u8],
+) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    // Load and process image
+    let img = image::load_from_memory(image_data)?;
 
-    let resized = img.resize_exact(224, 224, image::imageops::FilterType::Lanczos3);
-    let rgb_img: ImageBuffer<Rgb<f32>, Vec<f32>> = resized.to_rgb32f();
+    // Convert image to RGB format
+    let rgb_img = img.to_rgb8();
 
-    let mut normalized = Array4::zeros((1, 3, 224, 224));
-    for (x, y, pixel) in rgb_img.enumerate_pixels() {
-        normalized[[0, 0, y as usize, x as usize]] = (pixel[0] - 0.485) / 0.229;
-        normalized[[0, 1, y as usize, x as usize]] = (pixel[1] - 0.456) / 0.224;
-        normalized[[0, 2, y as usize, x as usize]] = (pixel[2] - 0.406) / 0.225;
-    }
+    // Convert to format expected by model
+    let input = ImageFeatureExtractionOption {
+        image: rgb_img,
+        ..Default::default()
+    };
 
-    let session = SessionBuilder::new(&model_env)
-        .context("Failed to create session")?
-        .with_model_from_file("resnet50.onnx")
-        .context("Failed to load model")?;
+    // Generate embedding
+    let embeddings = model
+        .encode(&[input])
+        .map_err(|e| Box::new(AppError::Model(e.to_string())) as Box<dyn std::error::Error>)?;
 
-    let input_tensor = Value::from_array(normalized)
-        .context("Failed to create input tensor")?;
-
-    let outputs = session.run(vec![input_tensor])
-        .context("Model inference failed")?;
-
-    let embedding = outputs[0].try_extract::<f32>()
-        .context("Failed to extract output")?;
-
-    Ok(Array1::from_vec(embedding.view().to_vec()))
+    Ok(embeddings[0].clone())
 }
 
-async fn find_similar_images(
-    client: &Qdrant,
-    embedding: Array1<f32>,
-    limit: u64
-) -> Result<Vec<SimilarityMatch>, AppError> {
-    let search_result = client
-        .search_points(&SearchPoints {
-            collection_name: COLLECTION_NAME.to_string(),
-            vector: embedding.to_vec(),
-            limit,
-            with_payload: Some(true.into()),
-            ..Default::default()
-        })
-        .await?;
-
-    Ok(search_result
-        .into_iter()
-        .map(|point| SimilarityMatch {
-            url: point.payload["url"].as_str().unwrap_or_default().to_string(),
-            similarity: point.score,
-            metadata: point.payload.get("metadata").cloned(),
-        })
-        .collect())
-}
-
-async fn upload_handler(
+async fn search_by_image(
+    State(state): State<AppState>,
     mut multipart: Multipart,
-   State( state): State<AppState>,
-) -> Result<Json<SimilarityResponse>, AppError> {
-    let start_time = std::time::Instant::now();
+) -> Result<Json<Vec<SearchResult>>, AppError> {
+    // Extract parameters and image from multipart form
+    let mut image_data = None;
+    let mut chat_id = None;
+    let mut limit = None;
+    let mut min_similarity = None;
 
-    // Get semaphore permit for concurrent search limiting
-    let _permit = state.concurrent_searches
-        .acquire()
-        .await
-        .map_err(|_| AppError::Internal("Server too busy".to_string()))?;
-
-    // Extract image file
-    let field = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::InvalidInput(e.to_string()))?
-        .ok_or_else(|| AppError::InvalidInput("No file uploaded".to_string()))?;
-
-    // Save temporarily
-    let temp_path = format!("/tmp/{}.jpg", Uuid::new_v4());
-    let mut file = File::create(&temp_path)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    file.write_all(&field.bytes().await.map_err(|e| AppError::InvalidInput(e.to_string()))?)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    // Process image and find matches
-    let embedding = process_image(&temp_path, &state.model_env).await?;
-    let matches = find_similar_images(&state.qdrant, embedding, 10).await?;
-
-    // Cleanup
-    if let Err(e) = tokio::fs::remove_file(&temp_path).await {
-        warn!("Failed to remove temporary file: {}", e);
+    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(e.to_string()))? {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "image" => {
+                let data = field.bytes().await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+                image_data = Some(data);
+            }
+            "chat_id" => {
+                chat_id = Some(field.text().await.map_err(|e| AppError::BadRequest(e.to_string()))?);
+            }
+            "limit" => {
+                if let Ok(text) = field.text().await {
+                    limit = Some(text.parse::<i32>().unwrap_or(10));
+                }
+            }
+            "min_similarity" => {
+                if let Ok(text) = field.text().await {
+                    min_similarity = Some(text.parse::<f32>().unwrap_or(0.0));
+                }
+            }
+            _ => {}
+        }
     }
 
-    let processing_time = start_time.elapsed().as_millis() as u64;
-   // gauge!("image_processing_time_ms", processing_time as f64);
-    // counter!("processed_images_total", 1);
+    let image_data = image_data.ok_or_else(|| AppError::BadRequest("No image provided".to_string()))?;
 
-    Ok(Json(SimilarityResponse {
-        matches,
-        processing_time_ms: processing_time,
-    }))
+    // Process image and generate embedding
+    let query_vector = process_image(&state.model, &image_data)
+        .await
+        .map_err(|e| AppError::ImageProcessing(e.to_string()))?;
+
+    // Perform search using the generated embedding
+    let limit = limit.unwrap_or(10).clamp(1, 100);
+    let min_similarity = min_similarity.unwrap_or(0.0).clamp(0.0, 1.0);
+
+    let results = match chat_id {
+        Some(chat_id) => {
+            query_as_unchecked!(
+                SearchResult,
+                r#"
+                SELECT
+                    msg_id,
+                    chat_id,
+                    timestamp,
+                    1 - (vector <=> $1::vector) as similarity
+                FROM images
+                WHERE
+                    chat_id = $2 AND
+                    1 - (vector <=> $1::vector) >= $4
+                ORDER BY vector <=> $1::vector
+                LIMIT $3
+                "#,
+                &query_vector,
+                chat_id,
+                limit,
+                min_similarity
+            )
+                .fetch_all(&state.db)
+                .await?
+        }
+        None => {
+            query_as_unchecked!(
+                SearchResult,
+                r#"
+                SELECT
+                    msg_id,
+                    chat_id,
+                    timestamp,
+                    1 - (vector <=> $1::vector) as similarity
+                FROM images
+                WHERE 1 - (vector <=> $1::vector) >= $3
+                ORDER BY vector <=> $1::vector
+                LIMIT $2
+                "#,
+                &query_vector,
+                limit,
+                min_similarity
+            )
+                .fetch_all(&state.db)
+                .await?
+        }
+    };
+
+    Ok(Json(results))
+}
+
+
+async fn store_image(
+    State(state): State<AppState>,
+    Json(image): Json<ImageEntity>,
+) -> Result<Json<Uuid>> {
+    // Validate vector dimension
+    if image.vector.len() != VECTOR_DIMENSION {
+        return Err(AppError::InvalidVectorDimension {
+            expected: VECTOR_DIMENSION,
+            actual: image.vector.len(),
+        });
+    }
+
+    // Validate input
+    if image.msg_id.is_empty() || image.chat_id.is_empty() {
+        return Err(AppError::BadRequest(
+            "msg_id and chat_id cannot be empty".to_string(),
+        ));
+    }
+
+    let id = query_unchecked!(
+        r#"
+        INSERT INTO images (id, msg_id, chat_id, vector, timestamp)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
+        "#,
+        image.id,
+        image.msg_id,
+        image.chat_id,
+        &image.vector,
+        image.timestamp,
+    )
+        .fetch_one(&state.db)
+        .await?
+        .id;
+
+    Ok(Json(id))
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load environment variables from .env file if present
+   dotenv().ok();
+
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    // Initialize metrics
-    metrics_exporter_prometheus::PrometheusBuilder::new()
-        .with_http_listener(([0, 0, 0, 0], 9000))
-        .install()?;
+    // Database connection
+    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .map_err(|e| AppError::Database(e))?;
 
-    // Initialize Qdrant client
-    let qdrant =Qdrant::from_url("http://localhost:6334").build()?;
-
-    initialize_qdrant(&qdrant).await?;
-
-    // Initialize ONNX Runtime
-    let model_env = Environment::builder()
-        .with_name("image_similarity")
-        .build()?;
-
-    // Configure rate limiting
-    let governor_conf = GovernorConfigBuilder::default()
-        .per_second(2)
-        .burst_size(5)
-        .finish()
-        .unwrap();
+    // Initialize CLIP model
+    let clip_model = Clip::new()
+        .map_err(|e| AppError::ClipModel(e.to_string()))?;
 
     let app_state = AppState {
-        qdrant,
-        model_env,
-        concurrent_searches: Arc::from(Semaphore::new(MAX_CONCURRENT_SEARCHES)),
+        db: pool,
+        clip_model,
     };
 
-    // Create router with rate limiting
     let app = Router::new()
-        .route("/similarity", post(upload_handler))
-     //   .layer(GovernorLayer::new(governor_conf))
-        .with_state(app_state);
+        .route("/search", post(search_by_image))
+        .route("/images", post(store_image))
+        .with_state(app_state)
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(tower_http::timeout::TimeoutLayer::new(std::time::Duration::from_secs(30)));
 
     // Start server
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    info!("Server running on http://0.0.0.0:3000");
-    axum::serve(listener, app).await?;
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 3000));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tracing::info!("Server running on http://{}", addr);
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     Ok(())
+}
+
+// Graceful shutdown handler
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("Shutdown signal received, starting graceful shutdown");
 }

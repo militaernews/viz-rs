@@ -2,24 +2,35 @@
 name = "viz-rs"
 version = "0.1.0"
 edition = "2024"
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package.askama_derive]
+opt-level = 3
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
 
 [dependencies]
+tokio =   { version = "1.43.0", features = ["full"] }
 axum =  { version = "0.8.1", features = ["multipart","macros", "ws"] }
-tokio = { version = "1.43.0", features = ["full"] }
-sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio-rustls"] }
+sqlx = { version = "0.8.2", features = ["postgres", "runtime-tokio-native-tls", "chrono", "uuid"] }
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0"
-anyhow = "1.0.95"
-ort = "2.0.0-rc.9"  # ONNX Runtime
-image = "0.25.5"
-ndarray = "0.16.1"
-uuid = { version = "1.0", features = ["v4"] }
-vector = "0.4.1"
-tracing = "0.1.41"
-tower = { version = "0.5.2", features = ["limit"] }
+serde_json = "1.0.138"
+chrono = { version = "0.4.39", features = ["serde"] }
+uuid = { version = "1.13.1", features = ["serde", "v4"] }
+tower-http = { version = "0.6.2", features = ["trace", "cors", "timeout"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
 thiserror = "2.0.11"
-tracing-subscriber = "0.3.19"  # For PostgreSQL vector extension
-qdrant-client  = "1.1"
-tower_governor = "0.6.0"
-metrics = "0.24.1"
-metrics-exporter-prometheus = "0.16.2"
+dotenvy = "0.15"
+rust-bert = "0.22"
+image = "0.24"
+bytes = "1.5"
