@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use dotenvy::dotenv;
 use tch::nn::{ModuleT, VarStore};
 use tch::vision::imagenet;
-use tch::vision::resnet::{resnet18, resnet50};
+use tch::vision::resnet::{resnet18, resnet34, resnet50};
 use tokio::net::TcpListener;
 use tracing::{log::info, error};
 use thiserror::Error;
@@ -87,14 +87,37 @@ struct SearchResult {
 }
 
 // Extract Image Features
-fn extract_features(img: DynamicImage) -> Result<Vec<f32>, AppError> {
-    let mut vs = VarStore::new(Device::cuda_if_available());
-    let model = resnet50(&vs.root(), 1000);
+fn extract_features(img: &[u8]) -> Result<Vec<f32>, AppError> {
+  //  let mut vs = VarStore::new(Device::cuda_if_available());
+   // let model = resnet50(&vs.root(), 1000);
 
     // Attempt to load the model
-  vs.load("D:\\dev\\tools\\resnet50.safetensors").map_err(AppError::ModelLoadingError)?;
+//  vs.load("D:\\dev\\tools\\resnet50.safetensors").map_err(AppError::ModelLoadingError)?;
 
-    let img = img.resize_exact(224, 224, image::imageops::FilterType::CatmullRom);
+
+    let image = imagenet::load_image_and_resize_from_memory(img,224,224)?;
+
+    // A variable store is created to hold the model parameters.
+    let mut vs = VarStore::new(Device::Cpu);
+
+    // Then the model is built on this variable store, and the weights are loaded.
+    let resnet18 = resnet34(&vs.root(), imagenet::CLASS_COUNT);
+    vs.load("D:\\dev\\tools\\resnet34.ot")?;
+
+
+    let output = resnet18
+        .forward_t(&image.unsqueeze(0), /*train=*/ false)
+        .softmax(-1,Kind::Float);
+
+
+
+
+    // Finally print the top 5 categories and their associated probabilities.
+    for (probability, class) in imagenet::top(&output, 7).iter() {
+        println!("{:50} {:5.2}%", class, 100.0 * probability)
+    }
+
+  /*  let img = img.resize_exact(224, 224, image::imageops::FilterType::CatmullRom);
     let rgb = img.to_rgb8();
     let (width, height) = rgb.dimensions();
 
@@ -104,7 +127,7 @@ fn extract_features(img: DynamicImage) -> Result<Vec<f32>, AppError> {
         &[1, 3, height as i64, width as i64],
         Kind::Uint8,
     )
-        .to_kind(Kind::Float) / 255.0;
+        .to_kind(Kind::Double )/ 255.0;
 
     // Normalize the tensor (ImageNet normalization)
     let mean = Tensor::from_slice(&[0.485, 0.456, 0.406]).view([1, 3, 1, 1]);
@@ -122,7 +145,19 @@ fn extract_features(img: DynamicImage) -> Result<Vec<f32>, AppError> {
 
     Ok(vec_f32)
 
+*/
 
+
+
+
+    let features = output.flatten(1, 1); // Flatten the output into a 1D feature vector
+
+    let mut vec_f32: Vec<f32> = vec![0.0; features.numel()];
+    features.copy_data(&mut vec_f32, features.numel());
+
+    dbg!(&vec_f32);
+
+    Ok(vec_f32)
 
 
 /*
@@ -154,8 +189,7 @@ async fn upload_image(
             println!("Received file: {}", filename);
 
             let data = field.bytes().await.map_err(AppError::MultipartError)?;
-            let img = image::load_from_memory(&data).map_err(AppError::ImageProcessingError)?;
-            let features = extract_features(img)?;
+            let features = extract_features(&*data)?;
 
             // Insert or Update Image in DB
             sqlx::query!(
@@ -195,8 +229,8 @@ async fn search_similar_images(
 
         println!("Length of `{}` is {} bytes", name, data.len());
 
-        let img = image::load_from_memory(&data).map_err(AppError::ImageProcessingError)?;
-        let features = extract_features(img)?;
+
+        let features = extract_features(&*data)?;
 
         // Query DB for similar images
         let similar_images = find_similar_images(&db_pool, features, 16).await?;
