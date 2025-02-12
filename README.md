@@ -1,0 +1,1 @@
+podman compose --file compose.yml up --detach 

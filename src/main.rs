@@ -1,4 +1,3 @@
-
 use std::env::var;
 use axum::{
     extract::{Multipart, Query, State},
@@ -6,18 +5,22 @@ use axum::{
     response::{Json, IntoResponse},
     Router,
 };
+use uuid::Uuid;
 use anyhow::{anyhow, Result};
 use image::DynamicImage;
-use pgvector::Vector;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Pool};
-use sqlx::Postgres;
+
 use std::net::SocketAddr;
+use std::sync::Arc;
 use axum::extract::FromRef;
 use tch::{nn, nn::Module, vision::resnet, Device, Kind, Tensor};
 use chrono::{DateTime, Utc};
 use dotenvy::dotenv;
+use qdrant_client::config::QdrantConfig;
+use qdrant_client::{Payload, Qdrant, QdrantError};
+use qdrant_client::prelude::point_id::PointIdOptions;
+use qdrant_client::qdrant::{value, CreateCollection, CreateCollectionBuilder, Distance, PointStruct, ScoredPoint, SearchParams, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, Value, VectorParams, VectorParamsBuilder, VectorsConfig};
+use qdrant_client::qdrant::RecommendExample::PointId;
 use tch::nn::{ModuleT, VarStore};
 use tch::vision::imagenet;
 use tch::vision::resnet::{resnet18, resnet34, resnet50};
@@ -28,13 +31,16 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Database error: {0}")]
-    DatabaseError(#[from] sqlx::Error),
+    DatabaseError(#[from] QdrantError),
 
     #[error("Image processing error: {0}")]
     ImageProcessingError(#[from] image::ImageError),
 
     #[error("Model loading error: {0}")]
     ModelLoadingError(#[from] tch::TchError),
+
+    #[error("Nested error: {0}")]
+    NestedError(#[from] anyhow::Error),
 
     #[error("Multipart field error: {0}")]
     MultipartError(#[from] axum::extract::multipart::MultipartError),
@@ -55,6 +61,7 @@ impl IntoResponse for AppError {
             AppError::MultipartError(_) => http::StatusCode::BAD_REQUEST,
             AppError::NoImageUploaded => http::StatusCode::BAD_REQUEST,
             AppError::Unknown => http::StatusCode::INTERNAL_SERVER_ERROR,
+            _ => http::StatusCode::INTERNAL_SERVER_ERROR
         };
         (status_code, Json(serde_json::json!({ "error": self.to_string() }))).into_response()
     }
@@ -62,29 +69,32 @@ impl IntoResponse for AppError {
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
-    pub db_pool: PgPool,
+    pub qdrant: Arc<Qdrant>,
 }
 
 #[derive(Deserialize)]
 struct UploadParams {
-    msg_id: String,
-    chat_id: String,
-    timestamp: Option<DateTime<Utc>>,
+    msg_id: i32,
+    chat_id: i32,
+    timestamp: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
 struct UploadResponse {
-    msg_id: String,
-    chat_id: String,
+    msg_id: i32,
+    chat_id: i32,
     timestamp: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
 struct SearchResult {
-    msg_id: String,
-    chat_id: String,
+    msg_id: i32,
+    chat_id: i32,
     distance: f32,
 }
+
+
+const IMAGES_COLLECTION: &str = "images";
 
 // Extract Image Features
 fn extract_features(img: &[u8]) -> Result<Vec<f32>, AppError> {
@@ -178,38 +188,47 @@ fn extract_features(img: &[u8]) -> Result<Vec<f32>, AppError> {
 
 // Upload or Update Image in Database
 async fn upload_image(
-    mut multipart: Multipart,
-    State(db_pool): State<PgPool>,
+    State(state): State<AppState>,
     Query(params): Query<UploadParams>,
+    mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
-    let timestamp = params.timestamp.unwrap_or(Utc::now());
+
 
     while let Some(field) = multipart.next_field().await.map_err(AppError::MultipartError)? {
         if let Some(filename) = field.file_name() {
             println!("Received file: {}", filename);
 
             let data = field.bytes().await.map_err(AppError::MultipartError)?;
-            let features = extract_features(&*data)?;
+            let vectors = extract_features(&*data)?;
 
-            // Insert or Update Image in DB
-            sqlx::query!(
-                r#"INSERT INTO images (msg_id, chat_id, vector, timestamp)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (msg_id, chat_id)
-                 DO UPDATE SET vector = EXCLUDED.vector, timestamp = EXCLUDED.timestamp"#,
-                params.msg_id,
-                params.chat_id,
-                &features as &[f32],
-                timestamp
-            )
-                .execute(&db_pool)
-                .await
+
+            let payload: Payload = serde_json::json!(
+        {
+            "chat_id": params.chat_id,
+            "msg_id": params.msg_id,
+            "timestamp": params.timestamp,
+        }
+    )
+                .try_into()?;
+
+
+            let id = Uuid::new_v4();
+
+            let points = vec![PointStruct::new( id.to_string(),vectors, payload )];
+            state.qdrant
+                .upsert_points(UpsertPointsBuilder::new(IMAGES_COLLECTION, points))
+
+
+
+
+
+            .await
                 .map_err(AppError::DatabaseError)?;
 
             return Ok(Json(UploadResponse {
                 msg_id: params.msg_id,
                 chat_id: params.chat_id,
-                timestamp,
+                timestamp: params.timestamp,
             }));
         }
     }
@@ -219,7 +238,7 @@ async fn upload_image(
 
 // Search for Similar Images
 async fn search_similar_images(
-    State(db_pool): State<PgPool>,
+    State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<Vec<SearchResult>>, AppError> {
 
@@ -233,7 +252,7 @@ async fn search_similar_images(
         let features = extract_features(&*data)?;
 
         // Query DB for similar images
-        let similar_images = find_similar_images(&db_pool, features, 16).await?;
+        let similar_images = search_vectors(&state.qdrant, features, 16).await?;
 
         return Ok(Json(similar_images));
     }
@@ -241,29 +260,7 @@ async fn search_similar_images(
     Ok(Json(vec![])) // Return empty if no image found
 }
 
-// Find Similar Images in Database
-async fn find_similar_images(
-    db_pool: &PgPool,
-    query_vector: Vec<f32>,
-    limit: i64,
-) -> Result<Vec<SearchResult>, sqlx::Error> {
-    let rows = sqlx::query!(
-        r#"SELECT msg_id, chat_id, vector <-> $1 AS distance FROM images ORDER BY distance LIMIT $2"#,
-        &query_vector as &[f32],
-        limit
-    )
-        .fetch_all(db_pool)
-        .await?;
 
-    Ok(rows
-        .iter()
-        .map(|row| SearchResult {
-            msg_id: row.msg_id.clone(),
-            chat_id: row.chat_id.clone(),
-            distance: row.distance.unwrap_or(0.0) as f32,
-        })
-        .collect())
-}
 
 // Set Up Axum Server
 #[tokio::main]
@@ -271,19 +268,31 @@ async fn main() -> Result<(), AppError> {
 
     dotenv().ok();
 
-    let database_url = var("DATABASE_URL").expect("Database Url has to be provided");
 
-    // Initialize Database Pool
-    let db_pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&*database_url)
-        .await
-        .map_err(AppError::DatabaseError)?;
 
-    let state = AppState { db_pool };
+    let qdrant =Arc::from( Qdrant::new(Default::default())?);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    let state = AppState { qdrant };
 
     let app = Router::new()
         .route("/search", post(search_similar_images)) // Search Images
+        .route("/upload", post(upload_image)) // Search Images
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -293,6 +302,49 @@ async fn main() -> Result<(), AppError> {
 
     info!("Server running on {}", addr);
     axum::serve(listener, app).await.map_err(|e| AppError::Unknown)?;
+
+    Ok(())
+}
+
+
+
+async fn search_vectors(qdrant: &Qdrant, query_vector: Vec<f32>, limit: u64) -> Result<Vec<SearchResult>> {
+    let search_response = qdrant
+        .search_points(
+            SearchPointsBuilder::new(   IMAGES_COLLECTION,  // The name of the collection
+            query_vector,
+            limit)
+                .params(SearchParamsBuilder::default().hnsw_ef(128).exact(false))
+        )
+        .await.map_err(AppError::DatabaseError)?;
+
+  let converted =  search_response.result.iter().map(|point| SearchResult{
+        msg_id: point.payload.get("msg_id").and_then(get_string_value).unwrap_or(0),
+        chat_id: point.payload.get("chat_id").and_then(get_string_value).unwrap_or(0),
+        distance: point.score,
+    }).collect(); // convert to json?
+
+    Ok(converted)
+}
+
+
+fn get_string_value(value: &Value) -> Option<i32> {
+    if let Some(value::Kind::IntegerValue(s)) = &value.kind {
+        Some(*s as i32)
+    } else {
+        None
+    }
+}
+
+
+async fn set_up(qdrant: Qdrant)->Result<()>{
+    qdrant
+        .create_collection(
+            CreateCollectionBuilder::new(IMAGES_COLLECTION)
+                .vectors_config(VectorParamsBuilder::new(imagenet::CLASS_COUNT as u64, Distance::Cosine))
+            ,
+        )
+        .await?;
 
     Ok(())
 }

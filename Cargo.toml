@@ -5,12 +5,6 @@ edition = "2024"
 [profile.dev]
 opt-level = 0
 
-[profile.dev.package.askama_derive]
-opt-level = 3
-
-[profile.dev.package.sqlx-macros]
-opt-level = 3
-
 [profile.release]
 opt-level = 3
 lto = true
@@ -21,7 +15,6 @@ panic = "abort"
 [dependencies]
 tokio =   { version = "1.43.0", features = ["full"] }
 axum =  { version = "0.8.1", features = ["multipart","macros", "ws"] }
-sqlx = { version = "0.8.2", features = ["postgres", "runtime-tokio-native-tls", "chrono", "uuid"] }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.138"
 chrono = { version = "0.4.39", features = ["serde"] }
@@ -34,9 +27,8 @@ dotenvy = "0.15"
 #rust-bert = "0.23"
 image = "0.25.5"
 bytes = "1.5"
-pgvector = { version = "0.4", features = ["sqlx"] }
 tch = { version = "0.19.0", features = [ ] }
 anyhow = "1.0.79"
 http = "1.2.0"
-
+qdrant-client = "1.13.0"
 
