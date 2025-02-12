@@ -1,32 +1,32 @@
-use std::env::var;
+use anyhow::{anyhow, Result};
 use axum::{
     extract::{Multipart, Query, State},
+    response::{IntoResponse, Json},
     routing::post,
-    response::{Json, IntoResponse},
     Router,
 };
-use uuid::Uuid;
-use anyhow::{anyhow, Result};
 use image::DynamicImage;
 use serde::{Deserialize, Serialize};
+use std::env::var;
+use uuid::Uuid;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
 use axum::extract::FromRef;
-use tch::{nn, nn::Module, vision::resnet, Device, Kind, Tensor};
 use chrono::{DateTime, Utc};
 use dotenvy::dotenv;
 use qdrant_client::config::QdrantConfig;
-use qdrant_client::{Payload, Qdrant, QdrantError};
 use qdrant_client::prelude::point_id::PointIdOptions;
-use qdrant_client::qdrant::{value, CreateCollection, CreateCollectionBuilder, Distance, PointStruct, ScoredPoint, SearchParams, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, Value, VectorParams, VectorParamsBuilder, VectorsConfig};
 use qdrant_client::qdrant::RecommendExample::PointId;
+use qdrant_client::qdrant::{value, CreateCollection, CreateCollectionBuilder, Distance, PointStruct, ScoredPoint, SearchParams, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, Value, VectorParams, VectorParamsBuilder, VectorsConfig};
+use qdrant_client::{Payload, Qdrant, QdrantError};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tch::nn::{ModuleT, VarStore};
 use tch::vision::imagenet;
 use tch::vision::resnet::{resnet18, resnet34, resnet50};
-use tokio::net::TcpListener;
-use tracing::{log::info, error};
+use tch::{nn, nn::Module, vision::resnet, Device, Kind, Tensor};
 use thiserror::Error;
+use tokio::net::TcpListener;
+use tracing::{error, log::info};
 
 #[derive(Error, Debug)]
 pub enum AppError {
@@ -44,6 +44,10 @@ pub enum AppError {
 
     #[error("Multipart field error: {0}")]
     MultipartError(#[from] axum::extract::multipart::MultipartError),
+
+    #[error("Incorrect Metadata provided: {0}")]
+    MetadataError(#[from] serde_json::Error),
+
 
     #[error("No image uploaded")]
     NoImageUploaded,
@@ -72,25 +76,26 @@ pub struct AppState {
     pub qdrant: Arc<Qdrant>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct UploadParams {
     msg_id: i32,
     chat_id: i32,
-    timestamp: DateTime<Utc>,
+    posted_at: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
 struct UploadResponse {
     msg_id: i32,
     chat_id: i32,
-    timestamp: DateTime<Utc>,
+    posted_at: DateTime<Utc>,
 }
 
 #[derive(Serialize)]
 struct SearchResult {
     msg_id: i32,
     chat_id: i32,
-    distance: f32,
+//    posted_at: DateTime<Utc>,
+    similarity: f32,
 }
 
 
@@ -189,51 +194,57 @@ fn extract_features(img: &[u8]) -> Result<Vec<f32>, AppError> {
 // Upload or Update Image in Database
 async fn upload_image(
     State(state): State<AppState>,
-    Query(params): Query<UploadParams>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>, AppError> {
-
+    let mut metadata: Option<UploadParams> = None;
+    let mut vectors: Option<Vec<f32>> = None;
 
     while let Some(field) = multipart.next_field().await.map_err(AppError::MultipartError)? {
-        if let Some(filename) = field.file_name() {
-            println!("Received file: {}", filename);
+        let name = field.name().unwrap().to_string();
+        println!("Received file: {}", name);
+        let data = field.bytes().await.map_err(AppError::MultipartError)?;
 
-            let data = field.bytes().await.map_err(AppError::MultipartError)?;
-            let vectors = extract_features(&*data)?;
-
-
-            let payload: Payload = serde_json::json!(
-        {
-            "chat_id": params.chat_id,
-            "msg_id": params.msg_id,
-            "timestamp": params.timestamp,
-        }
-    )
-                .try_into()?;
-
-
-            let id = Uuid::new_v4();
-
-            let points = vec![PointStruct::new( id.to_string(),vectors, payload )];
-            state.qdrant
-                .upsert_points(UpsertPointsBuilder::new(IMAGES_COLLECTION, points))
-
-
-
-
-
-            .await
-                .map_err(AppError::DatabaseError)?;
-
-            return Ok(Json(UploadResponse {
-                msg_id: params.msg_id,
-                chat_id: params.chat_id,
-                timestamp: params.timestamp,
-            }));
+        if name == "meta" {
+            metadata = serde_json::from_slice(&data).map_err(AppError::MetadataError)?;
+            println!("Done receiving: {:?} - data: {:?}", metadata, data);
+        } else if name == "image" {
+            vectors = Some(extract_features(&*data)?);
         }
     }
 
-    Err(AppError::NoImageUploaded)
+    println!("Done receiving: {:?}", metadata);
+
+    if let (Some(metadata), Some(vectors)) = (metadata, vectors) {
+
+
+        let payload: Payload = serde_json::json!(
+    {
+        "chat_id": metadata.chat_id,
+        "msg_id": metadata.msg_id,
+        "timestamp": metadata.posted_at,
+    }
+)     .try_into()?;
+
+
+        let id = Uuid::new_v4().to_string();
+
+        let points = vec![PointStruct::new(id, vectors, payload)];
+        state.qdrant
+            .upsert_points(UpsertPointsBuilder::new(IMAGES_COLLECTION, points))
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(Json(UploadResponse {
+            msg_id: metadata.msg_id,
+            chat_id: metadata.chat_id,
+            posted_at: metadata.posted_at,
+        }))
+
+}else{
+        Err(AppError::NoImageUploaded)
+    }
+
+
 }
 
 // Search for Similar Images
@@ -321,7 +332,7 @@ async fn search_vectors(qdrant: &Qdrant, query_vector: Vec<f32>, limit: u64) -> 
   let converted =  search_response.result.iter().map(|point| SearchResult{
         msg_id: point.payload.get("msg_id").and_then(get_string_value).unwrap_or(0),
         chat_id: point.payload.get("chat_id").and_then(get_string_value).unwrap_or(0),
-        distance: point.score,
+      similarity: point.score,
     }).collect(); // convert to json?
 
     Ok(converted)
