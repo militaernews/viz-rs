@@ -61,12 +61,10 @@
 	}
 </script>
 
-<div class="container mx-auto max-w-2xl p-4">
-	<h1 class="mb-4 text-2xl font-bold">Image Search</h1>
-
+<div class="container mx-auto max-w-3xl p-2">
 	<!-- Upload Area -->
 	<div
-		class="mb-4 cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors"
+		class="sticky top-2 z-10 mb-2 cursor-pointer rounded-lg border-2 border-dashed bg-slate-700/75 p-4 text-center backdrop-blur-sm transition-colors"
 		class:border-blue-500={dragActive}
 		class:border-gray-300={!dragActive}
 		on:dragover={handleDragOver}
@@ -100,24 +98,41 @@
 
 	<!-- Results Display -->
 	{#if results.length > 0}
-		<div class="space-y-4">
-			<h2 class="text-xl font-semibold">Search Results</h2>
-			<div class="divide-accent grid grid-cols-3 gap-4 p-4">
-				{#each results as result}
-					<div class="flex items-center justify-between">
-						<div>
-							<p class="text-sm text-gray-600">Message ID: {result.msg_id}</p>
-							<p class="text-sm text-gray-600">Chat ID: {result.chat_id}</p>
-							<p class="text-sm text-gray-600">
-								Posted: {new Date(result.posted_at).toLocaleString()}
-							</p>
-							<p class="text-lg font-semibold text-gray-600">
-								Similarity: {(result.similarity * 100).toFixed(2)}%
-							</p>
-						</div>
+		<div class="divide-accent grid grid-cols-4 gap-4 p-2">
+			{#each results as result}
+				<a
+					class="flex flex-col items-center gap-2 overflow-clip rounded-lg bg-slate-800 text-sm text-gray-500 transition-transform hover:scale-104"
+					href={`https://t.me/${result.chat_id}/${result.msg_id}`}
+				>
+					<img
+						src="/GX9CzFCaUAE5JxT.jpg"
+						class="h-26 w-full object-cover"
+						alt="Image {result.chat_id}/{result.msg_id}"
+					/>
+					<div class="flex flex-row items-center justify-between px-2">
+						<p class=" font-semibold">{result.chat_id}</p>
+
+						<p>#{result.msg_id}</p>
 					</div>
-				{/each}
-			</div>
+
+					<div class="flex flex-row items-center justify-between px-2">
+						<p>{new Date(result.posted_at).toLocaleString()}</p>
+
+						<p
+							class=" font-semibold text-green-500"
+							class:text-green-500={result.similarity > 0.8}
+							class:text-lime-500={result.similarity > 0.65 && result.similarity <= 0.8}
+							class:text-yellow-500={result.similarity > 0.4 && result.similarity <= 0.65}
+							class:text-amber-500={result.similarity > 0.25 && result.similarity <= 0.4}
+							class:text-orange-500={result.similarity > 0.1 && result.similarity <= 0.25}
+							class:text-red-500={result.similarity <= 0.1}
+						>
+							{(result.similarity * 100).toFixed(2)}%
+						</p>
+					</div>
+				</a>
+			{/each}
 		</div>
+		<a class="btn btn-secondary" href="">Load more More</a>
 	{/if}
 </div>

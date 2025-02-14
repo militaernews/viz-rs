@@ -15,7 +15,7 @@ pub async fn insert_images(qdrant: &Qdrant, metadata:  &UploadParams, vectors: V
     {
         "chat_id": metadata.chat_id,
         "msg_id": metadata.msg_id,
-        "timestamp": metadata.posted_at,
+        "posted_at": metadata.posted_at,
     }
 )     .try_into()?;
 
@@ -37,14 +37,14 @@ pub async fn search_vectors(qdrant: &Qdrant, query_vector: Vec<f32>, limit: u64)
             SearchPointsBuilder::new(   IMAGES_COLLECTION,  // The name of the collection
                                         query_vector,
                                         limit)
-                .params(SearchParamsBuilder::default().hnsw_ef(128).exact(false))
+                .params(SearchParamsBuilder::default().hnsw_ef(128).exact(false)).with_payload(true) .with_vectors(false)
         )
         .await.map_err(AppError::DatabaseError)?;
 
     let converted =  search_response.result.iter().map(|point|
 
         {
-
+//dbg!(&point);
 
 
             SearchResult{
@@ -78,7 +78,15 @@ fn get_int64_value(value: &Value) -> Option<i64> {
 }
 
 fn get_date_value(value: &Value) -> Option<DateTime<Utc>> {
+    eprintln!("{:?}", &value);
+    dbg!(&value);
+
     if let Some(value::Kind::StringValue(s)) = &value.kind {
+        eprintln!("{:?}", &s);
+        let date:DateTime<Utc> = DateTime::from(DateTime::parse_from_rfc3339(s).unwrap());
+
+        eprintln!("{:?}", &date);
+
         Some(DateTime::from(DateTime::parse_from_rfc3339(s).unwrap()))
     } else {
         None
