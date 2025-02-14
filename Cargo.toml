@@ -26,9 +26,11 @@ thiserror = "2.0.11"
 dotenvy = "0.15"
 #rust-bert = "0.23"
 image = "0.25.5"
-bytes = "1.5"
 tch = { version = "0.19.0", features = [ ] }
 anyhow = "1.0.79"
 http = "1.2.0"
 qdrant-client = "1.13.0"
 
+grammers-client="0.7.0"
+log = "0.4.25"
+simple_logger="5.0.0"
