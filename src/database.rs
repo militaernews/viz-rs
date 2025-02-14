@@ -48,7 +48,7 @@ pub async fn search_vectors(qdrant: &Qdrant, query_vector: Vec<f32>, limit: u64)
 
 
             SearchResult{
-                msg_id: point.payload.get_key_value("msg_id").and_then(get_int_value).unwrap_or(0),
+                msg_id: point.payload.get("msg_id").and_then(get_int_value).unwrap_or(0),
                 chat_id: point.payload.get("chat_id").and_then(get_int64_value).unwrap_or(0),
                 posted_at: point.payload.get("posted_at").and_then(get_date_value).unwrap_or(DateTime::default()),
                 similarity: point.score,

@@ -26,9 +26,9 @@ pub fn extract_features(img: &[u8]) -> anyhow::Result<Vec<f32>, AppError> {
 
 
     // Finally print the top 5 categories and their associated probabilities.
-    for (probability, class) in imagenet::top(&output, 7).iter() {
+  /*  for (probability, class) in imagenet::top(&output, 7).iter() {
         println!("{:50} {:5.2}%", class, 100.0 * probability)
-    }
+    } */
 
 
 
@@ -37,7 +37,7 @@ pub fn extract_features(img: &[u8]) -> anyhow::Result<Vec<f32>, AppError> {
     let mut vec_f32: Vec<f32> = vec![0.0; features.numel()];
     features.copy_data(&mut vec_f32, features.numel());
 
-    dbg!(&vec_f32);
+  //  dbg!(&vec_f32);
 
     Ok(vec_f32)
 

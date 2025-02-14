@@ -31,6 +31,6 @@ anyhow = "1.0.79"
 http = "1.2.0"
 qdrant-client = "1.13.0"
 
-grammers-client="0.7.0"
+grammers-client={ git = "https://github.com/Lonami/grammers.git", rev = "19b81d1" }
 log = "0.4.25"
 simple_logger="5.0.0"

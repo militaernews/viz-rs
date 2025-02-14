@@ -6,10 +6,13 @@ use qdrant_client::Qdrant;
 use crate::embedding::extract_features;
 use grammers_client::session::Session;
 use grammers_client::types::Media;
-use grammers_client::{Client, Config};
+use grammers_client::{Client, Config, SignInError};
 use simple_logger::SimpleLogger;
-use std::env;
+use std::{env, io};
+use std::io::{BufRead, Write};
 use std::path::Path;
+use std::thread::sleep;
+use std::time::Duration;
 
 const SESSION_FILE: &str = "image_downloader.session";
 
@@ -32,6 +35,7 @@ async fn process_chat_images(
     let mut image_counter = 0;
 
     while let Some(msg) = messages.next().await? {
+        sleep(Duration::from_millis(200));
         if let Some(media) = msg.media() {
 
 
@@ -43,7 +47,7 @@ async fn process_chat_images(
                 );
 
                 client
-                    .download_media(&media, &Path::new(&temp_path))
+                    .download_media(&img, &Path::new(&temp_path))
                     .await?;
 
 
@@ -78,6 +82,20 @@ async fn process_chat_images(
     Ok(())
 }
 
+fn prompt(message: &str) -> Result<String> {
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+    stdout.write_all(message.as_bytes())?;
+    stdout.flush()?;
+
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
+
+    let mut line = String::new();
+    stdin.read_line(&mut line)?;
+    Ok(line)
+}
+
 pub async fn extract_from_chat(qdrant: Qdrant) -> Result<()> {
     SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
@@ -97,13 +115,42 @@ pub async fn extract_from_chat(qdrant: Qdrant) -> Result<()> {
         .await?;
     println!("Connected!");
 
+
     if !client.is_authorized().await? {
-        println!("Please run the auth_setup example first to create a valid session file");
-        return Ok(());
+        println!("Signing in...");
+        let phone =env::var("PHONE").expect("PHONE invalid");
+        let token = client.request_login_code(&phone).await?;
+        let code = prompt("Enter the code you received: ")?;
+        let signed_in = client.sign_in(&token, &code).await;
+        match signed_in {
+            Err(SignInError::PasswordRequired(password_token)) => {
+                // Note: this `prompt` method will echo the password in the console.
+                //       Real code might want to use a better way to handle this.
+                let hint = password_token.hint().unwrap_or("None");
+                let prompt_message = format!("Enter the password (hint {}): ", &hint);
+                let password = prompt(prompt_message.as_str())?;
+
+                client
+                    .check_password(password_token, password.trim())
+                    .await?;
+            }
+            Ok(_) => (),
+            Err(e) => panic!("{}", e),
+        };
+        println!("Signed in!");
+        match client.session().save_to_file(SESSION_FILE) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("NOTE: failed to save the session, will sign out when done: {e}");
+
+            }
+        }
     }
 
     // Process images
     process_chat_images(&client, &chat_name, &qdrant).await?;
+
+
 
     Ok(())
 }

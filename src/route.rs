@@ -3,10 +3,12 @@ use std::sync::Arc;
 use axum::extract::{FromRef, Multipart, State};
 use axum::{Json, Router};
 use axum::routing::post;
+use http::{header, HeaderValue, Method};
 use log::info;
 use qdrant_client::Qdrant;
 use tokio::net::TcpListener;
-use crate::{ AppError,};
+use tower_http::cors::CorsLayer;
+use crate::{AppError,};
 use crate::database::{insert_images, search_vectors};
 use crate::embedding::extract_features;
 use crate::entity::{SearchResult, UploadParams, UploadResponse};
@@ -66,7 +68,7 @@ async fn search_similar_images(
     mut multipart: Multipart,
 ) -> anyhow::Result<Json<Vec<SearchResult>>, AppError> {
 
-    while let Some(mut field) = multipart.next_field().await.map_err(AppError::MultipartError)? {
+    while let Some( field) = multipart.next_field().await.map_err(AppError::MultipartError)? {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.map_err(AppError::MultipartError)?;
 
@@ -89,10 +91,20 @@ pub async fn serve(qdrant:Qdrant)->Result<(),AppError> {
         qdrant:Arc::from(qdrant)
     };
 
+    let cors = CorsLayer::new()
+        // Allow requests from your frontend origin
+        .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
+        .allow_methods([Method::POST])
+        // Allow the Content-Type header for multipart form data
+        .allow_headers([header::CONTENT_TYPE])
+        .allow_credentials(true);
+
+
     let app = Router::new()
         .route("/search", post(search_similar_images)) // Search Images
         .route("/upload", post(upload_image)) // Search Images
-        .with_state(state);
+        .with_state(state)
+        .layer(cors);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(&addr)

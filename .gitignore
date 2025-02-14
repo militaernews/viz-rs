@@ -1,1 +1,4 @@
 /target
+.env
+/qdrant_data/*
+image_downloader.session
