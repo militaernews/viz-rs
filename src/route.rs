@@ -100,6 +100,8 @@ pub async fn serve(qdrant:Qdrant)->Result<(),AppError> {
         .allow_credentials(true);
 
 
+
+
     let app = Router::new()
         .route("/search", post(search_similar_images)) // Search Images
         .route("/upload", post(upload_image)) // Search Images

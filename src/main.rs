@@ -27,7 +27,7 @@ async fn main() -> Result<(), AppError> {
     let qdrant = Qdrant::new(Default::default())?;
 
 
- //   extract_from_chat(qdrant).await?;
+  //extract_from_chat(qdrant).await?;
 
 
     route::serve(qdrant).await?;

@@ -8,7 +8,7 @@ use grammers_client::session::Session;
 use grammers_client::types::Media;
 use grammers_client::{Client, Config, SignInError};
 use simple_logger::SimpleLogger;
-use std::{env, io};
+use std::{env, fs, io};
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::thread::sleep;
@@ -35,17 +35,21 @@ async fn process_chat_images(
     let mut image_counter = 0;
 
     while let Some(msg) = messages.next().await? {
-        sleep(Duration::from_millis(200));
+        tokio::time::sleep(Duration::from_millis(600)).await;
         if let Some(media) = msg.media() {
 
 
             // Only process photos
             if let Media::Photo(img) = media {
                 let temp_path = format!(
-                    "target/temp-image-{}.jpg",
-                    msg.id()
+                    "frontend/static/img/{}/{}.jpg",
+                   chat.id(), msg.id()
                 );
 
+                fs::create_dir_all(format!(
+                    "frontend/static/img/{}/",
+                    chat.id()
+                ))?;
                 client
                     .download_media(&img, &Path::new(&temp_path))
                     .await?;

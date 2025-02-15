@@ -1,16 +1,13 @@
 <script lang="ts">
+	import DetailsModal from './../lib/component/DetailsModal.svelte';
 	import { onMount } from 'svelte';
+	import type { SearchResult } from './SearchResult';
 
 	let fileInput: HTMLInputElement;
-	let dragActive = false;
-	let isLoading = false;
-	let results: Array<{
-		msg_id: number;
-		chat_id: number;
-		posted_at: string;
-		similarity: number;
-	}> = [];
-	let error: string | null = null;
+	let dragActive = $state(false);
+	let isLoading = $state(false);
+	let results: Array<SearchResult> = $state([]);
+	let error: string | null = $state(null);
 
 	async function handleUpload(files: FileList) {
 		if (!files.length) return;
@@ -59,6 +56,17 @@
 			handleUpload(e.dataTransfer.files);
 		}
 	}
+
+	let dialog: HTMLDialogElement | undefined = $state();
+	let details: SearchResult | null = $state(null);
+
+	const showModal = (index: number) => {
+		details = results[index];
+		dialog?.showModal();
+		return () => {
+			dialog?.close();
+		};
+	};
 </script>
 
 <div class="container mx-auto max-w-3xl p-2">
@@ -67,15 +75,15 @@
 		class="sticky top-2 z-10 mb-2 cursor-pointer rounded-lg border-2 border-dashed bg-slate-700/75 p-4 text-center backdrop-blur-sm transition-colors"
 		class:border-blue-500={dragActive}
 		class:border-gray-300={!dragActive}
-		on:dragover={handleDragOver}
-		on:dragleave={handleDragLeave}
-		on:drop={handleDrop}
-		on:click={() => fileInput.click()}
+		ondragover={handleDragOver}
+		ondragleave={handleDragLeave}
+		ondrop={handleDrop}
+		onclick={() => fileInput.click()}
 	>
 		<input
 			type="file"
 			bind:this={fileInput}
-			on:change={(e) => handleUpload(e.currentTarget.files!)}
+			onchange={(e) => handleUpload(e.currentTarget.files!)}
 			accept="image/*"
 			multiple
 			class="file-input hidden"
@@ -99,15 +107,26 @@
 	<!-- Results Display -->
 	{#if results.length > 0}
 		<div class="divide-accent grid grid-cols-4 gap-4 p-2">
-			{#each results as result}
-				<a
-					class="flex flex-col items-center gap-2 overflow-clip rounded-lg bg-slate-800 text-sm text-gray-500 transition-transform hover:scale-104"
-					href={`https://t.me/${result.chat_id}/${result.msg_id}`}
+			{#each results as result, i}
+				<button
+					onclick={() => showModal(i)}
+					class="flex flex-col items-center gap-2 overflow-clip rounded-lg border-2 bg-slate-800 text-sm text-gray-500 transition-transform hover:scale-104"
+					class:border-green-500={result.similarity > 0.8}
+					class:border-lime-500={result.similarity > 0.65 && result.similarity <= 0.8}
+					class:border-yellow-500={result.similarity > 0.4 && result.similarity <= 0.65}
+					class:border-amber-500={result.similarity > 0.25 && result.similarity <= 0.4}
+					class:border-orange-500={result.similarity > 0.1 && result.similarity <= 0.25}
+					class:border-red-500={result.similarity <= 0.1}
 				>
 					<img
-						src="/GX9CzFCaUAE5JxT.jpg"
+						src="{`/img/${result.chat_id}/${result.msg_id}`}.jpg"
 						class="h-26 w-full object-cover"
 						alt="Image {result.chat_id}/{result.msg_id}"
+						onerror={(ev) => {
+							ev.target!.onerror = null;
+							ev.target!.src = '/test.jpg';
+							console.log(ev.target);
+						}}
 					/>
 					<div class="flex flex-row items-center justify-between px-2">
 						<p class=" font-semibold">{result.chat_id}</p>
@@ -115,24 +134,21 @@
 						<p>#{result.msg_id}</p>
 					</div>
 
-					<div class="flex flex-row items-center justify-between px-2">
-						<p>{new Date(result.posted_at).toLocaleString()}</p>
-
-						<p
-							class=" font-semibold text-green-500"
-							class:text-green-500={result.similarity > 0.8}
-							class:text-lime-500={result.similarity > 0.65 && result.similarity <= 0.8}
-							class:text-yellow-500={result.similarity > 0.4 && result.similarity <= 0.65}
-							class:text-amber-500={result.similarity > 0.25 && result.similarity <= 0.4}
-							class:text-orange-500={result.similarity > 0.1 && result.similarity <= 0.25}
-							class:text-red-500={result.similarity <= 0.1}
-						>
-							{(result.similarity * 100).toFixed(2)}%
-						</p>
-					</div>
-				</a>
+					<p class=" px-2 pb-2">
+						{new Date(result.posted_at).toLocaleTimeString([], {
+							year: 'numeric',
+							month: 'numeric',
+							day: 'numeric',
+							hour: '2-digit',
+							minute: '2-digit',
+							hour12: false
+						})}
+					</p>
+				</button>
 			{/each}
 		</div>
 		<a class="btn btn-secondary" href="">Load more More</a>
+
+		<DetailsModal {details} bind:dialog />
 	{/if}
 </div>
