@@ -6,6 +6,7 @@ use axum::routing::post;
 use http::{header, HeaderValue, Method};
 use log::info;
 use qdrant_client::Qdrant;
+use sqlx::{PgPool, Pool, Postgres};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use crate::{AppError,};
@@ -18,6 +19,7 @@ use crate::entity::{SearchResult, UploadParams, UploadResponse};
 #[derive(Clone, FromRef)]
 pub struct AppState {
     pub qdrant: Arc<Qdrant>,
+    pub pg_pool:PgPool
 }
 
 
@@ -78,7 +80,7 @@ async fn search_similar_images(
         let features = extract_features(&*data)?;
 
         // Query DB for similar images
-        let similar_images = search_vectors(&state.qdrant, features, 16).await?;
+        let similar_images = search_vectors(&state.qdrant, &state.pg_pool, features, 16).await?;
 
         return Ok(Json(similar_images));
     }
@@ -86,9 +88,10 @@ async fn search_similar_images(
     Ok(Json(vec![])) // Return empty if no image found
 }
 
-pub async fn serve(qdrant:Qdrant)->Result<(),AppError> {
+pub async fn serve(qdrant:Qdrant, pg_pool: Pool<Postgres>) ->Result<(),AppError> {
     let state = AppState {
-        qdrant:Arc::from(qdrant)
+        qdrant:Arc::from(qdrant),
+        pg_pool
     };
 
     let cors = CorsLayer::new()

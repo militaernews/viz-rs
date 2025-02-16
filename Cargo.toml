@@ -21,7 +21,8 @@ chrono = { version = "0.4.39", features = ["serde"] }
 uuid = { version = "1.13.1", features = ["serde", "v4"] }
 tower-http = { version = "0.6.2", features = ["trace", "cors", "timeout"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
 thiserror = "2.0.11"
 dotenvy = "0.15"
 #rust-bert = "0.23"
@@ -34,3 +35,14 @@ qdrant-client = "1.13.0"
 grammers-client={ git = "https://github.com/Lonami/grammers.git", rev = "19b81d1" }
 log = "0.4.25"
 simple_logger="5.0.0"
+
+
+sqlx = { version = "0.8.3", features = [
+    "postgres",
+    "runtime-tokio",
+    "tls-rustls",
+    "macros",
+    "migrate",
+    "time",
+] }
+futures = "0.3.31"

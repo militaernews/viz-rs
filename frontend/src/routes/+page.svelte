@@ -71,8 +71,8 @@
 
 <div class="container mx-auto max-w-3xl p-2">
 	<!-- Upload Area -->
-	<div
-		class="sticky top-2 z-10 mb-2 cursor-pointer rounded-lg border-2 border-dashed bg-slate-700/75 p-4 text-center backdrop-blur-sm transition-colors"
+	<button
+		class="sticky top-2 z-10 mb-2 w-full cursor-pointer rounded-lg border-2 border-dashed bg-slate-700/75 p-4 text-center backdrop-blur-sm transition-colors"
 		class:border-blue-500={dragActive}
 		class:border-gray-300={!dragActive}
 		ondragover={handleDragOver}
@@ -95,7 +95,7 @@
 				Drop images here or click to upload
 			{/if}
 		</p>
-	</div>
+	</button>
 
 	<!-- Error Display -->
 	{#if error}

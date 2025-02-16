@@ -15,9 +15,13 @@
 		dialog: HTMLDialogElement | undefined;
 		details: SearchResult | null;
 	} = $props();
+
+	let source_link = `https://t.me/c/${details?.chat_id}/${details?.msg_id}`;
+	let invite_link = `https://t.me/joinchat/${details?.invite_hash}`;
+	let backup_link = `https://t.me/nn_backup/${details?.msg_id}`; // todo add
 </script>
 
-<dialog bind:this={dialog} class="modal modal-bottom">
+<dialog bind:this={dialog} class="modal">
 	<div class="modal-box mx-auto flex max-w-3xl flex-row gap-4">
 		<img
 			src="{`/img/${details?.chat_id}/${details?.msg_id}`}.jpg"
@@ -30,8 +34,10 @@
 			}}
 		/>
 
-		<div class="flex w-full flex-col gap-2">
-			<h3 class="text-lg font-bold">Name of channel</h3>
+		<div class="flex w-full flex-col gap-4">
+			<h3 class="text-lg font-bold">
+				{details?.display_name}{details?.bias && ` • ${details?.bias}`}
+			</h3>
 
 			<div class="grid w-full grid-cols-2 justify-between gap-2">
 				<span class="flex flex-row items-center gap-1"
@@ -59,12 +65,23 @@
 				</p>
 			</div>
 
+			{#if details?.tags?.length! > 0}
+				<div class="flex flex-row flex-wrap items-center gap-2">
+					{#each details?.tags! as tag}
+						<span class="badge badge-soft badge-primary">{tag}</span>
+					{/each}
+				</div>
+			{/if}
+
 			<div class="mt-auto flex w-full flex-row space-x-2">
-				<a class="btn btn-accent flex-1" href=""><FluentColorChatMore24 class="size-5" /> Source</a>
-				<a class="btn btn-primary flex-1" href=""
-					><FluentColorLinkMultiple24 class="size-5" /> Invite</a
-				>
-				<a class="btn btn-secondary flex-1" href=""
+				<a class="btn btn-accent flex-1" href={source_link}>
+					<FluentColorChatMore24 class="size-5" /> Source
+				</a>
+				{#if details?.invite_hash}<a class="btn btn-primary flex-1" href={invite_link}
+						><FluentColorLinkMultiple24 class="size-5" /> Invite
+					</a>
+				{/if}
+				<a class="btn btn-secondary flex-1" href={backup_link}
 					><FluentColorCloudWords24 class="size-5" /> Backup</a
 				>
 			</div>

@@ -6,8 +6,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("Database error: {0}")]
-    DatabaseError(#[from] QdrantError),
+    #[error("Vector Database error: {0}")]
+    VectorDatabaseError(#[from] QdrantError),
+
+    #[error("Telegram Database error: {0}")]
+    TelegramDatabaseError(#[from] sqlx::Error),
 
     #[error("Image processing error: {0}")]
     ImageProcessingError(#[from] image::ImageError),
@@ -35,7 +38,8 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         let status_code = match &self {
-            AppError::DatabaseError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::VectorDatabaseError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::TelegramDatabaseError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
             AppError::ImageProcessingError(_) => http::StatusCode::BAD_REQUEST,
             AppError::ModelLoadingError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
             AppError::MultipartError(_) => http::StatusCode::BAD_REQUEST,
@@ -43,6 +47,6 @@ impl IntoResponse for AppError {
             AppError::Unknown => http::StatusCode::INTERNAL_SERVER_ERROR,
             _ => http::StatusCode::INTERNAL_SERVER_ERROR
         };
-        (status_code, Json(json!({ "error": self.to_string() }))).into_response()
+        (status_code, self.to_string() ).into_response()
     }
 }
