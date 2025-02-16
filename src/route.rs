@@ -102,14 +102,21 @@ pub async fn serve(qdrant:Qdrant, pg_pool: Pool<Postgres>) ->Result<(),AppError>
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true);
 
-
+    let cors2 = CorsLayer::new()
+        // Allow requests from your frontend origin
+        .allow_origin("https://fa74-91-33-123-75.ngrok-free.app ".parse::<HeaderValue>().unwrap())
+        .allow_methods([Method::POST])
+        // Allow the Content-Type header for multipart form data
+        .allow_headers([header::CONTENT_TYPE])
+        .allow_credentials(true);
 
 
     let app = Router::new()
         .route("/search", post(search_similar_images)) // Search Images
         .route("/upload", post(upload_image)) // Search Images
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(cors2);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(&addr)

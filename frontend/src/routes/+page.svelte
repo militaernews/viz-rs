@@ -1,44 +1,15 @@
 <script lang="ts">
-	import DetailsModal from './../lib/component/DetailsModal.svelte';
-	import { onMount } from 'svelte';
-	import type { SearchResult } from './SearchResult';
+	import DetailsModal from '../lib/component/DetailsModal.svelte';
+	import SuperDebug, { superForm, fileProxy } from 'sveltekit-superforms';
+	import type { PageData } from './$types';
 	import { formatDate } from '$lib/util';
+	import type { SearchResult } from './+page.server';
+
+	let { data } = $props();
 
 	let fileInput: HTMLInputElement;
 	let dragActive = $state(false);
-	let isLoading = $state(false);
-	let results: Array<SearchResult> = $state([]);
-	let error: string | null = $state(null);
-
-	async function handleUpload(files: FileList) {
-		if (!files.length) return;
-
-		isLoading = true;
-		error = null;
-
-		try {
-			const formData = new FormData();
-			Array.from(files).forEach((file, index) => {
-				formData.append(`image`, file);
-			});
-
-			const response = await fetch('http://localhost:3000/search', {
-				method: 'POST',
-				body: formData
-			});
-
-			if (!response.ok) {
-				throw new Error(`HTTP error! status: ${response.status}`);
-			}
-
-			results = await response.json();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'An error occurred during upload';
-			results = [];
-		} finally {
-			isLoading = false;
-		}
-	}
+	let results = $state<SearchResult[]>([]);
 
 	function handleDragOver(e: DragEvent) {
 		e.preventDefault();
@@ -52,10 +23,19 @@
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		dragActive = false;
-
-		if (e.dataTransfer?.files) {
-			handleUpload(e.dataTransfer.files);
+		if (e.dataTransfer?.files?.length) {
+			handleFile(e.dataTransfer.files[0]);
 		}
+	}
+
+	const { form, enhance, errors, message } = superForm(data.form);
+
+	function handleFile(file: File) {
+		if (!file.type.startsWith('image/')) {
+			$message = 'Please select an image file';
+			return;
+		}
+		$form.image = file;
 	}
 
 	let dialog: HTMLDialogElement | undefined = $state();
@@ -70,38 +50,52 @@
 	};
 </script>
 
+<SuperDebug data={$form} />
+
+// src/routes/+page.svelte
 <div class="container mx-auto max-w-3xl p-2">
-	<!-- Upload Area -->
-	<button
-		class="sticky top-2 z-10 mb-2 w-full cursor-pointer rounded-lg border-2 border-dashed bg-slate-700/75 p-4 text-center backdrop-blur-sm transition-colors"
-		class:border-blue-500={dragActive}
-		class:border-gray-300={!dragActive}
-		ondragover={handleDragOver}
-		ondragleave={handleDragLeave}
-		ondrop={handleDrop}
-		onclick={() => fileInput.click()}
-	>
-		<input
-			type="file"
-			bind:this={fileInput}
-			onchange={(e) => handleUpload(e.currentTarget.files!)}
-			accept="image/*"
-			multiple
-			class="file-input hidden"
-		/>
-		<p>
-			{#if isLoading}
-				Uploading...
-			{:else}
-				Drop images here or click to upload
-			{/if}
-		</p>
-	</button>
+	<form method="POST" enctype="multipart/form-data" use:enhance>
+		<!-- Upload Area -->
+
+		<button
+			type="button"
+			class="sticky top-2 z-10 mb-2 w-full cursor-pointer rounded-lg border-2 border-dashed bg-slate-700/75 p-4 text-center backdrop-blur-sm transition-colors"
+			class:border-blue-500={dragActive}
+			class:border-gray-300={!dragActive}
+			ondragover={handleDragOver}
+			ondragleave={handleDragLeave}
+			ondrop={handleDrop}
+			onclick={() => fileInput.click()}
+		>
+			<input
+				class="hidden"
+				type="file"
+				name="image"
+				accept="image/png, image/jpeg"
+				bind:this={fileInput}
+				oninput={(e) => ($form.image = e.currentTarget.files?.item(0)!)}
+			/>
+
+			<p>
+				{#if $form.image}
+					{$form.image.name}
+				{:else}
+					Drop an image here or click to upload
+				{/if}
+			</p>
+		</button>
+
+		{#if $errors.image}
+			<div class="mt-1 text-sm text-red-500">
+				{$errors.image}
+			</div>
+		{/if}
+	</form>
 
 	<!-- Error Display -->
-	{#if error}
+	{#if $message}
 		<div class="mb-4 rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700">
-			{error}
+			{$message}
 		</div>
 	{/if}
 
@@ -120,29 +114,24 @@
 					class:border-red-500={result.similarity <= 0.1}
 				>
 					<img
-						src="{`/img/${result.chat_id}/${result.msg_id}`}.jpg"
+						src={`/img/${result.chat_id}/${result.msg_id}.jpg`}
 						class="h-26 w-full object-cover"
 						alt="Image {result.chat_id}/{result.msg_id}"
 						onerror={(ev) => {
-							ev.target!.onerror = null;
-							ev.target!.src = '/placeholder.svg';
-							console.log(ev.target);
+							ev.target.onerror = null;
+							ev.target.src = '/placeholder.svg';
 						}}
 					/>
 					<div class="flex flex-row items-center justify-between gap-2 px-2">
-						<p class=" font-semibold">{result.display_name}</p>
-
+						<p class="font-semibold">{result.display_name}</p>
 						<p>#{result.msg_id}</p>
 					</div>
-
-					<p class=" px-2 pb-2">
+					<p class="px-2 pb-2">
 						{formatDate(result.posted_at)}
 					</p>
 				</button>
 			{/each}
 		</div>
-		<a class="btn btn-secondary" href="">Load more More</a>
-
 		<DetailsModal {details} bind:dialog />
 	{/if}
 </div>

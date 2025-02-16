@@ -16,5 +16,8 @@ export default defineConfig({
 				props.mode = 'url';
 			}
 		})
-	]
+	],
+	server: {
+		allowedHosts: true
+	}
 });

@@ -7,13 +7,12 @@ use crate::embedding::extract_features;
 use grammers_client::session::Session;
 use grammers_client::types::Media;
 use grammers_client::{Client, Config, SignInError};
-use simple_logger::SimpleLogger;
-use std::{env, fs, io};
 use std::env::var;
 use std::io::{BufRead, Write};
 use std::path::Path;
-use std::thread::sleep;
 use std::time::Duration;
+use std::{env, fs, io};
+use tokio::time::sleep;
 
 const SESSION_FILE: &str = "image_downloader.session";
 
@@ -36,23 +35,18 @@ async fn process_chat_images(
     let mut image_counter = 0;
 
     while let Some(msg) = messages.next().await? {
-        tokio::time::sleep(Duration::from_millis(600)).await;
+       sleep(Duration::from_millis(600)).await;
         if let Some(media) = msg.media() {
-
-
-            // Only process photos
             if let Media::Photo(img) = media {
-
-                let chat_id =  format!("-100{}", chat.id()).parse::<i64>()?;
 
                 let temp_path = format!(
                     "frontend/static/img/{}/{}.jpg",
-                    chat_id, msg.id()
+                    chat.id(), msg.id()
                 );
 
                 fs::create_dir_all(format!(
                     "frontend/static/img/{}/",
-                    chat_id
+                    chat.id()
                 ))?;
                 client
                     .download_media(&img, &Path::new(&temp_path))
@@ -65,7 +59,7 @@ async fn process_chat_images(
                     Ok(vectors) => {
                         let metadata = UploadParams {
                             msg_id: msg.id(),
-                            chat_id,
+                            chat_id:chat.id(),
                             posted_at: msg.date(),
                         };
 
