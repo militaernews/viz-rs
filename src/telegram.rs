@@ -9,6 +9,7 @@ use grammers_client::types::Media;
 use grammers_client::{Client, Config, SignInError};
 use simple_logger::SimpleLogger;
 use std::{env, fs, io};
+use std::env::var;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::thread::sleep;
@@ -41,27 +42,30 @@ async fn process_chat_images(
 
             // Only process photos
             if let Media::Photo(img) = media {
+
+                let chat_id =  format!("-100{}", chat.id()).parse::<i64>()?;
+
                 let temp_path = format!(
                     "frontend/static/img/{}/{}.jpg",
-                   chat.id(), msg.id()
+                    chat_id, msg.id()
                 );
 
                 fs::create_dir_all(format!(
                     "frontend/static/img/{}/",
-                    chat.id()
+                    chat_id
                 ))?;
                 client
                     .download_media(&img, &Path::new(&temp_path))
                     .await?;
 
 
-                let bytes = std::fs::read(temp_path)?;
+                let bytes = fs::read(temp_path)?;
 
                 match extract_features(&bytes) {
                     Ok(vectors) => {
                         let metadata = UploadParams {
                             msg_id: msg.id(),
-                            chat_id: chat.id(),
+                            chat_id,
                             posted_at: msg.date(),
                         };
 
@@ -101,9 +105,7 @@ fn prompt(message: &str) -> Result<String> {
 }
 
 pub async fn extract_from_chat(qdrant: Qdrant) -> Result<()> {
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .init()?;
+
 
     let api_id = env::var("TG_ID").expect("TG_ID invalid").parse()?;
     let api_hash = env::var("TG_HASH").expect("TG_HASH invalid");
@@ -122,7 +124,7 @@ pub async fn extract_from_chat(qdrant: Qdrant) -> Result<()> {
 
     if !client.is_authorized().await? {
         println!("Signing in...");
-        let phone =env::var("PHONE").expect("PHONE invalid");
+        let phone =var("PHONE").expect("PHONE invalid");
         let token = client.request_login_code(&phone).await?;
         let code = prompt("Enter the code you received: ")?;
         let signed_in = client.sign_in(&token, &code).await;

@@ -12,6 +12,7 @@ use qdrant_client::{Payload, Qdrant};
 use serde_json::json;
 use sqlx::{query, PgPool};
 use tch::vision::imagenet;
+use tracing_subscriber::fmt::format;
 use uuid::Uuid;
 
 const IMAGES_COLLECTION: &str = "images";
@@ -31,7 +32,7 @@ pub async fn insert_images(
     .try_into()?;
 
     //TODO avoid inserting already present msg_id/chat_id
-    let id = Uuid::new_v4().to_string();
+    let id = format!("{}/{}", metadata.chat_id, metadata.msg_id);
 
     let points = vec![PointStruct::new(id, vectors, payload)];
     qdrant

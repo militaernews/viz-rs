@@ -16,8 +16,6 @@
 	"devDependencies": {
 		"@eslint/compat": "1.2.6",
 		"@eslint/js": "9.20.0",
-		"@iconify-json/fluent-color": "^1.2.6",
-		"@iconify-json/material-symbols": "^1.2.14",
 		"@sveltejs/adapter-static": "^3.0.8",
 		"@sveltejs/kit": "2.17.2",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
@@ -36,6 +34,14 @@
 		"typescript": "5.7.3",
 		"typescript-eslint": "8.24.0",
 		"unplugin-icons": "22.0.0",
+		"@iconify-json/bi": "1.2.2",
+		"@iconify-json/flat-color-icons": "1.2.1",
+		"@iconify-json/fluent": "1.2.14",
+		"@iconify-json/fluent-color": "1.2.6",
+		"@iconify-json/fluent-emoji": "1.2.3",
+		"@iconify-json/logos": "1.2.4",
+		"@iconify-json/material-symbols": "1.2.14",
+		"@iconify-json/mdi": "1.2.3",
 		"vite": "6.1.0"
 	},
 	"dependencies": {

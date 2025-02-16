@@ -9,8 +9,14 @@
       "devDependencies": {
         "@eslint/compat": "1.2.6",
         "@eslint/js": "9.20.0",
-        "@iconify-json/fluent-color": "^1.2.6",
-        "@iconify-json/material-symbols": "^1.2.14",
+        "@iconify-json/bi": "1.2.2",
+        "@iconify-json/flat-color-icons": "1.2.1",
+        "@iconify-json/fluent": "1.2.14",
+        "@iconify-json/fluent-color": "1.2.6",
+        "@iconify-json/fluent-emoji": "1.2.3",
+        "@iconify-json/logos": "1.2.4",
+        "@iconify-json/material-symbols": "1.2.14",
+        "@iconify-json/mdi": "1.2.3",
         "@sveltejs/adapter-static": "^3.0.8",
         "@sveltejs/kit": "2.17.2",
         "@sveltejs/vite-plugin-svelte": "5.0.3",
@@ -116,9 +122,21 @@
 
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.1", "", {}, "sha512-c7hNEllBlenFTHBky65mhq8WD2kbN9Q6gk0bTk8lSBvc554jpXSkST1iePudpt7+A/AQvuHs9EMqjHDXMY1lrA=="],
 
+    "@iconify-json/bi": ["@iconify-json/bi@1.2.2", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-f/Wm+RTdBosw3cI/gmg5uSFmdumkw2thUk4qVFS56jTerdal6wqWnWAbRTSJJ/vhH9/y16pRKnvE8F2+M23dzw=="],
+
+    "@iconify-json/flat-color-icons": ["@iconify-json/flat-color-icons@1.2.1", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-iv1NQai4ThVJf5RGB2UBY/EYG4P5KpdnRTUM1hqLweD6OmWxZUyNJkqLzwns6/t+VBYM0H5gS/ckSWyxxEIYmQ=="],
+
+    "@iconify-json/fluent": ["@iconify-json/fluent@1.2.14", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-0t+EzHn8wqWG7ZbbWlMBBNM1hcGyaEJqBbneTk98uUR03akf3JAvIsXuMYpGrPnK5LNQ0qZfcc2axnxj2TwQAA=="],
+
     "@iconify-json/fluent-color": ["@iconify-json/fluent-color@1.2.6", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-RLcuCVlN5DbmYuKvoNKiGqZHqNrrU2Y41zLCZglN3KUHtAh+0l1i5SML5lhmyKcRfxYVJqUsYoQJYQiNFDYbCg=="],
 
+    "@iconify-json/fluent-emoji": ["@iconify-json/fluent-emoji@1.2.3", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-q9oSqx463rVTQbPbVwvpOkeVii+9BifvJcluv5lqs5ybdab4lnVnpQ/uE2zAseFGOWNygKJsXZl6HbgV9HGhZw=="],
+
+    "@iconify-json/logos": ["@iconify-json/logos@1.2.4", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-XC4If5D/hbaZvUkTV8iaZuGlQCyG6CNOlaAaJaGa13V5QMYwYjgtKk3vPP8wz3wtTVNVEVk3LRx1fOJz+YnSMw=="],
+
     "@iconify-json/material-symbols": ["@iconify-json/material-symbols@1.2.14", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-S0AAFFQPVr8Dkrprspz/otNjxdD3rJRXDGZjbO8a8zn8ZR5mO8jAF81lVoTfUWxPH6SCtH2lK1JQGXHGPxld7g=="],
+
+    "@iconify-json/mdi": ["@iconify-json/mdi@1.2.3", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-O3cLwbDOK7NNDf2ihaQOH5F9JglnulNDFV7WprU2dSoZu3h3cWH//h74uQAB87brHmvFVxIOkuBX2sZSzYhScg=="],
 
     "@iconify/svelte": ["@iconify/svelte@4.2.0", "", { "dependencies": { "@iconify/types": "^2.0.0" }, "peerDependencies": { "svelte": ">4.0.0" } }, "sha512-fEl0T7SAPonK7xk6xUlRPDmFDZVDe2Z7ZstlqeDS/sS8ve2uyU+Qa8rTWbIqzZJlRvONkK5kVXiUf9nIc+6OOQ=="],
 

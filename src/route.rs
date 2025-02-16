@@ -80,7 +80,7 @@ async fn search_similar_images(
         let features = extract_features(&*data)?;
 
         // Query DB for similar images
-        let similar_images = search_vectors(&state.qdrant, &state.pg_pool, features, 16).await?;
+        let similar_images = search_vectors(&state.qdrant, &state.pg_pool, features, 36).await?;
 
         return Ok(Json(similar_images));
     }

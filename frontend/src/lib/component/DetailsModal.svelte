@@ -7,6 +7,7 @@
 	import FluentColorCloudWords24 from '~icons/fluent-color/cloud-words-24';
 
 	import type { SearchResult } from '../../routes/SearchResult';
+	import { formatDate } from '$lib/util';
 
 	let {
 		dialog = $bindable(),
@@ -16,9 +17,9 @@
 		details: SearchResult | null;
 	} = $props();
 
-	let source_link = `https://t.me/c/${details?.chat_id}/${details?.msg_id}`;
-	let invite_link = `https://t.me/joinchat/${details?.invite_hash}`;
-	let backup_link = `https://t.me/nn_backup/${details?.msg_id}`; // todo add
+	let source_link = $derived(`https://t.me/c/${details?.chat_id}/${details?.msg_id}`);
+	let invite_link = $derived(`https://t.me/joinchat/${details?.invite_hash}`);
+	let backup_link = $derived(`https://t.me/nn_backup/${details?.msg_id}`); // todo add
 </script>
 
 <dialog bind:this={dialog} class="modal">
@@ -29,7 +30,7 @@
 			alt="Image {details?.chat_id}/{details?.msg_id}"
 			onerror={(ev) => {
 				ev.target!.onerror = null;
-				ev.target!.src = '/test.jpg';
+				ev.target!.src = '/placeholder.svg';
 				console.log(ev.target);
 			}}
 		/>
@@ -54,14 +55,7 @@
 					><FluentColorCalendar24 class="size-5" />Posted at</span
 				>
 				<p class=" ">
-					{new Date(details?.posted_at!).toLocaleTimeString([], {
-						year: 'numeric',
-						month: 'numeric',
-						day: 'numeric',
-						hour: '2-digit',
-						minute: '2-digit',
-						hour12: false
-					})}
+					{formatDate(details?.posted_at!)}
 				</p>
 			</div>
 

@@ -2,6 +2,7 @@
 	import DetailsModal from './../lib/component/DetailsModal.svelte';
 	import { onMount } from 'svelte';
 	import type { SearchResult } from './SearchResult';
+	import { formatDate } from '$lib/util';
 
 	let fileInput: HTMLInputElement;
 	let dragActive = $state(false);
@@ -124,25 +125,18 @@
 						alt="Image {result.chat_id}/{result.msg_id}"
 						onerror={(ev) => {
 							ev.target!.onerror = null;
-							ev.target!.src = '/test.jpg';
+							ev.target!.src = '/placeholder.svg';
 							console.log(ev.target);
 						}}
 					/>
-					<div class="flex flex-row items-center justify-between px-2">
-						<p class=" font-semibold">{result.chat_id}</p>
+					<div class="flex flex-row items-center justify-between gap-2 px-2">
+						<p class=" font-semibold">{result.display_name}</p>
 
 						<p>#{result.msg_id}</p>
 					</div>
 
 					<p class=" px-2 pb-2">
-						{new Date(result.posted_at).toLocaleTimeString([], {
-							year: 'numeric',
-							month: 'numeric',
-							day: 'numeric',
-							hour: '2-digit',
-							minute: '2-digit',
-							hour12: false
-						})}
+						{formatDate(result.posted_at)}
 					</p>
 				</button>
 			{/each}
