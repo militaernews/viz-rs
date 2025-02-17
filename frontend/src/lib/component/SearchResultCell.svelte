@@ -7,7 +7,7 @@
 
 <button
 	{onclick}
-	class="flex flex-col items-center gap-2 overflow-clip rounded-lg border-2 bg-slate-800 text-sm text-gray-500 transition-transform hover:scale-104"
+	class="bg-base-100 flex cursor-pointer flex-col items-center gap-2 overflow-clip rounded-lg border-2 text-sm text-gray-500 transition-transform hover:scale-96"
 	class:border-green-500={result.similarity > 0.9}
 	class:border-lime-500={result.similarity > 0.75 && result.similarity <= 0.9}
 	class:border-yellow-500={result.similarity > 0.5 && result.similarity <= 0.75}
