@@ -1,4 +1,4 @@
 /target
-.env
+service/.env
 /qdrant_data/*
-image_downloader.session
+service/image_downloader.session

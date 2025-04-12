@@ -32,6 +32,11 @@ async fn process_chat_images(
         messages.total().await.unwrap_or(0)
     );
 
+    fs::create_dir_all(format!(
+        "frontend/static/img/{}/",
+        chat.id()
+    ))?;
+
     let mut image_counter = 0;
 
     while let Some(msg) = messages.next().await? {
@@ -44,10 +49,7 @@ async fn process_chat_images(
                     chat.id(), msg.id()
                 );
 
-                fs::create_dir_all(format!(
-                    "frontend/static/img/{}/",
-                    chat.id()
-                ))?;
+
                 client
                     .download_media(&img, &Path::new(&temp_path))
                     .await?;
@@ -103,7 +105,7 @@ pub async fn extract_from_chat(qdrant: Qdrant) -> Result<()> {
 
     let api_id = env::var("TG_ID").expect("TG_ID invalid").parse()?;
     let api_hash = env::var("TG_HASH").expect("TG_HASH invalid");
-    let chat_name = "reverse_psyop";
+    let chat_name = "nn_backup";
 
     println!("Connecting to Telegram...");
     let client = Client::connect(Config {

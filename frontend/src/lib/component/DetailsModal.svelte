@@ -6,8 +6,8 @@
 	import FluentColorLinkMultiple24 from '~icons/fluent-color/link-multiple-24';
 	import FluentColorCloudWords24 from '~icons/fluent-color/cloud-words-24';
 
-	import type { SearchResult } from '../../routes/SearchResult';
 	import { formatDate } from '$lib/util';
+	import type { SearchResult } from '../../routes/+page.server';
 
 	let {
 		dialog = $bindable(),
@@ -17,7 +17,11 @@
 		details: SearchResult | null;
 	} = $props();
 
-	let source_link = $derived(`https://t.me/c/${details?.chat_id}/${details?.msg_id}`);
+	let source_link = $derived(
+		details?.invite_hash && !details?.user_name
+			? `https://t.me/c/${details?.chat_id}/${details?.msg_id}`
+			: `https://t.me/${details?.user_name}/${details?.msg_id}`
+	);
 	let invite_link = $derived(`https://t.me/joinchat/${details?.invite_hash}`);
 	let backup_link = $derived(`https://t.me/nn_backup/${details?.msg_id}`); // todo add
 </script>
@@ -71,7 +75,9 @@
 				<a class="btn btn-accent flex-1" href={source_link}>
 					<FluentColorChatMore24 class="size-5" /> Source
 				</a>
-				{#if details?.invite_hash}<a class="btn btn-primary flex-1" href={invite_link}
+				{#if details?.invite_hash && !details?.user_name}<a
+						class="btn btn-primary flex-1"
+						href={invite_link}
 						><FluentColorLinkMultiple24 class="size-5" /> Invite
 					</a>
 				{/if}

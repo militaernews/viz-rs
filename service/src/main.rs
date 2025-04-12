@@ -50,10 +50,10 @@ async fn main() -> Result<(), AppError> {
         .map_err(|e| anyhow!("DB connection failed: {}", e))?;
 
 
-// extract_from_chat(qdrant).await?;
+ // extract_from_chat(qdrant).await?;
 
 
-   serve(qdrant, pg_pool).await?;
+  serve(qdrant, pg_pool).await?;
 
     Ok(())
 }

@@ -62,7 +62,7 @@
 	};
 </script>
 
-<div class=" bg-base-100 sticky top-0 z-10 p-4">
+<div class=" bg-base-100 sticky top-0 z-10 p-2 sm:top-0 sm:p-4">
 	<form
 		method="POST"
 		enctype="multipart/form-data"
@@ -117,7 +117,7 @@
 </div>
 
 {#if form?.data?.length > 0}
-	<div class="divide-accent grid grid-cols-4 gap-4 pb-4">
+	<div class="grid grid-cols-2 gap-2 px-2 pb-4 sm:grid-cols-4 sm:gap-4">
 		{#each form!.data as result, index}
 			<SearchResultCell {result} onclick={() => showModal(index)} />
 		{/each}
