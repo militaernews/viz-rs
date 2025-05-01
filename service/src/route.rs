@@ -1,27 +1,27 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
+use crate::database::{insert_images, search_vectors};
+use crate::embedding::extract_features;
+use crate::entity::{SearchResult, UploadParams, UploadResponse};
+use crate::AppError;
+use anyhow::Result;
 use axum::extract::{FromRef, Multipart, State};
-use axum::{Json, Router};
+use axum::routing::get;
 use axum::routing::post;
+use axum::{Json, Router};
 use http::{header, HeaderValue, Method};
 use log::info;
 use qdrant_client::Qdrant;
 use sqlx::{PgPool, Pool, Postgres};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
-use crate::{AppError,};
-use crate::database::{insert_images, search_vectors};
-use crate::embedding::extract_features;
-use crate::entity::{SearchResult, UploadParams, UploadResponse};
-
-
+use tower_http::trace::TraceLayer;
 
 #[derive(Clone, FromRef)]
 pub struct AppState {
     pub qdrant: Arc<Qdrant>,
-    pub pg_pool:PgPool
+    pub pg_pool: PgPool,
 }
-
 
 async fn upload_image(
     State(state): State<AppState>,
@@ -30,7 +30,11 @@ async fn upload_image(
     let mut metadata: Option<UploadParams> = None;
     let mut vectors: Option<Vec<f32>> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(AppError::MultipartError)? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(AppError::MultipartError)?
+    {
         let name = field.name().unwrap().to_string();
         println!("Received file: {}", name);
         let data = field.bytes().await.map_err(AppError::MultipartError)?;
@@ -46,7 +50,6 @@ async fn upload_image(
     println!("Done receiving: {:?}", metadata);
 
     if let (Some(metadata), Some(vectors)) = (metadata, vectors) {
-
         insert_images(&state.qdrant, &metadata, vectors).await?;
 
         Ok(Json(UploadResponse {
@@ -54,28 +57,25 @@ async fn upload_image(
             chat_id: metadata.chat_id,
             posted_at: metadata.posted_at,
         }))
-
-    }else{
+    } else {
         Err(AppError::NoImageUploaded)
     }
-
-
 }
-
-
 
 // Search for Similar Images
 async fn search_similar_images(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> anyhow::Result<Json<Vec<SearchResult>>, AppError> {
-
-    while let Some( field) = multipart.next_field().await.map_err(AppError::MultipartError)? {
+) -> Result<Json<Vec<SearchResult>>, AppError> {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(AppError::MultipartError)?
+    {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.map_err(AppError::MultipartError)?;
 
         println!("Length of `{}` is {} bytes", name, data.len());
-
 
         let features = extract_features(&*data)?;
 
@@ -88,35 +88,34 @@ async fn search_similar_images(
     Ok(Json(vec![])) // Return empty if no image found
 }
 
-pub async fn serve(qdrant:Qdrant, pg_pool: Pool<Postgres>) ->Result<(),AppError> {
+pub async fn serve(qdrant: Qdrant, pg_pool: Pool<Postgres>) -> Result<(), AppError> {
     let state = AppState {
-        qdrant:Arc::from(qdrant),
-        pg_pool
+        qdrant: Arc::from(qdrant),
+        pg_pool,
     };
+
+    let origins = [
+        "http://localhost:5173".parse().unwrap(),
+        "http://rnimu-2003-d2-6f0f-5d7f-2cdc-89a-6491-94ff.a.free.pinggy.link"
+            .parse()
+            .unwrap(),
+    ];
 
     let cors = CorsLayer::new()
         // Allow requests from your frontend origin
-        .allow_origin("http://localhost:5173".parse::<HeaderValue>().unwrap())
+        .allow_origin(origins)
         .allow_methods([Method::POST])
         // Allow the Content-Type header for multipart form data
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true);
-
-    let cors2 = CorsLayer::new()
-        // Allow requests from your frontend origin
-        .allow_origin("https://fa74-91-33-123-75.ngrok-free.app ".parse::<HeaderValue>().unwrap())
-        .allow_methods([Method::POST])
-        // Allow the Content-Type header for multipart form data
-        .allow_headers([header::CONTENT_TYPE])
-        .allow_credentials(true);
-
 
     let app = Router::new()
         .route("/search", post(search_similar_images)) // Search Images
         .route("/upload", post(upload_image)) // Search Images
+        .route("/", get(root)) // Search Images
         .with_state(state)
-        .layer(cors)
-        .layer(cors2);
+        .layer(TraceLayer::new_for_http())
+        .layer(cors);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = TcpListener::bind(&addr)
@@ -124,7 +123,13 @@ pub async fn serve(qdrant:Qdrant, pg_pool: Pool<Postgres>) ->Result<(),AppError>
         .map_err(|e| AppError::Unknown)?;
 
     info!("Server running on {}", addr);
-    axum::serve(listener, app).await.map_err(|e| AppError::Unknown)?;
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| AppError::Unknown)?;
 
     Ok(())
+}
+
+async fn root() -> &'static str {
+    "Functional call is root"
 }

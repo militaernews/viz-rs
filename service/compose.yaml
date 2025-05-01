@@ -14,19 +14,22 @@ services:
       - source: qdrant_config
         target: /qdrant/config/production.yaml
     volumes:
-      - ./qdrant_data:/qdrant/storage
+      - ../qdrant_data:/qdrant/storage
 
   app:
     container_name: viz-rs
     build:
-      context: ./service
+      context: .
       target: runtime
-    environment:
-     - PORT=80
+ #  environment:
+   #  - PORT=80
     expose:
       - 3000
     ports:
       - "3000:3000"
+    restart: unless-stopped
+    env_file:
+      - .env
 
 
 
