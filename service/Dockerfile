@@ -26,20 +26,16 @@ RUN curl -L "${LIBTORCH_DOWNLOAD_URL}" -o libtorch.zip \
 ENV LIBTORCH=/opt/libtorch
 ENV LD_LIBRARY_PATH=/opt/libtorch/lib
 
-
-RUN test -f $LIBTORCH/lib/libtorch.so && echo "libtorch found!" || (echo "libtorch NOT found!" && false)
-
-
-
-
 WORKDIR /app
 
 # Copy recipe and cook dependencies
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
+# Copy source code
+COPY . .
 
-# Set LIBTORCH during build explicitly so torch-sys picks it up
+# Build with libtorch
 RUN LIBTORCH=$LIBTORCH \
     LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
     cargo build --release --bin viz-rs
@@ -47,11 +43,22 @@ RUN LIBTORCH=$LIBTORCH \
 # Step 4: Runtime container with only what's needed to run
 FROM debian:bookworm-slim AS runtime
 
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libssl-dev ca-certificates libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy libtorch shared libraries and binary
+# Copy libtorch shared libraries
 COPY --from=builder /opt/libtorch /opt/libtorch
+
+# Set runtime environment variables
+ENV LD_LIBRARY_PATH=/opt/libtorch/lib
+
+# Copy binary
 COPY --from=builder /app/target/release/viz-rs /usr/local/bin
 
+# Expose the port
+EXPOSE 3000
 
 # Run the application
-ENTRYPOINT ["/usr/local/bin/viz-rs"]
+CMD ["/usr/local/bin/viz-rs"]

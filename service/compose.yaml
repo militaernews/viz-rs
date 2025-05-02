@@ -15,6 +15,10 @@ services:
         target: /qdrant/config/production.yaml
     volumes:
       - ../qdrant_data:/qdrant/storage
+    networks:
+      - shared-net
+    environment:
+      - check_compatibility=false
 
   app:
     container_name: viz-rs
@@ -30,7 +34,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-
+    environment:
+      - LD_LIBRARY_PATH=/opt/libtorch/lib
+      - check_compatibility=false
+        # remove above line?
+    networks:
+      - shared-net
 
 
 
@@ -38,3 +47,8 @@ configs:
   qdrant_config:
     content: |
       log_level: INFO      
+
+networks:
+  shared-net:
+    driver: bridge
+

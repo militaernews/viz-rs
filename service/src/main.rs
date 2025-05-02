@@ -15,6 +15,9 @@ use crate::error::AppError;
 use crate::telegram::extract_from_chat;
 use axum::extract::FromRef;
 use dotenvy::dotenv;
+use log::info;
+
+use qdrant_client::config::QdrantConfig;
 use qdrant_client::Qdrant;
 use sqlx::postgres::PgPoolOptions;
 use tch::nn::ModuleT;
@@ -37,10 +40,18 @@ async fn main() -> Result<(), AppError> {
         .with(tracing_subscriber::fmt::layer())
         .try_init().expect("Failed to initialise logging");
 
+    info!("Env: log");
+    println!("Env: print");
+    for (key, value) in std::env::vars() {
+        println!("{key}: {value}");
+    }
 
 
-
-    let qdrant = Qdrant::new(Default::default())?;
+    let qdrant = Qdrant::new(QdrantConfig {
+        uri: "http://localhost:6334".to_string(),
+        check_compatibility: false,  // Skip version compatibility check
+        ..Default::default()
+    })?;
 //set_up(qdrant).await?;
 
     let pg_pool = PgPoolOptions::new()
