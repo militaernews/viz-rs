@@ -14,24 +14,53 @@ services:
       - source: qdrant_config
         target: /qdrant/config/production.yaml
     volumes:
-      - ./qdrant_data:/qdrant/storage
+      - ../qdrant_data:/qdrant/storage
+    networks:
+      - shared-net
+    environment:
+      - check_compatibility=false
 
   app:
     container_name: viz-rs
     build:
       context: ./service
       target: runtime
-    environment:
-     - PORT=80
+    #  environment:
+    #  - PORT=80
     expose:
       - 3000
     ports:
       - "3000:3000"
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - shared-net
 
-
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3011:3011"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3011" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - shared-net
 
 
 configs:
   qdrant_config:
     content: |
       log_level: INFO      
+
+networks:
+  shared-net:
+    driver: bridge
+

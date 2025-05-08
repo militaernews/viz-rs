@@ -1,0 +1,41 @@
+# Ignore Rust build artifacts
+target/
+
+# Ignore Git directory
+.git/
+.gitignore
+
+# Ignore editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore environment files
+.env
+.env.*
+
+# Ignore documentation
+docs/
+*.md
+
+# Ignore test data
+test_data/
+
+# Ignore temporary files
+tmp/
+temp/
+
+# Ignore node modules if using any JS tooling
+node_modules/
+
+# Ignore large datasets
+data/
+datasets/
+*.csv
+*.json
+*.sqlite
+
+# Keep necessary configuration files
+!config/*.json
+!config/*.yaml

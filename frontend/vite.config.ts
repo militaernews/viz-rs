@@ -48,7 +48,7 @@ export default defineConfig({
 		} */
 	],
 	server: {
-		allowedHosts: true
-		//	port: 80
+		allowedHosts: true,
+			port: 3011
 	}
 });
