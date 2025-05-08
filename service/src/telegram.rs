@@ -8,10 +8,10 @@ use grammers_client::session::Session;
 use grammers_client::types::Media;
 use grammers_client::{Client, Config, SignInError};
 use std::env::var;
+use std::{env, fs, io};
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
-use std::{env, fs, io};
 use tokio::time::sleep;
 
 const SESSION_FILE: &str = "image_downloader.session";
@@ -103,8 +103,8 @@ fn prompt(message: &str) -> Result<String> {
 pub async fn extract_from_chat(qdrant: Qdrant) -> Result<()> {
 
 
-    let api_id = env::var("TG_ID").expect("TG_ID invalid").parse()?;
-    let api_hash = env::var("TG_HASH").expect("TG_HASH invalid");
+    let api_id = var("TG_ID").expect("TG_ID invalid").parse()?;
+    let api_hash = var("TG_HASH").expect("TG_HASH invalid");
     let chat_name = "nn_backup";
 
     println!("Connecting to Telegram...");

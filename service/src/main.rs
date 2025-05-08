@@ -38,7 +38,7 @@ async fn main() -> Result<(), AppError> {
             |_| "axum_login=debug,tower_sessions=debug,sqlx=warn,tower_http=debug".into(),
         )))
         .with(tracing_subscriber::fmt::layer())
-        .try_init().expect("Failed to initialise logging");
+        .try_init().expect("Failed to initialise logging"); 
 
     info!("Env: log");
     println!("Env: print");
@@ -54,6 +54,9 @@ async fn main() -> Result<(), AppError> {
     })?;
 //set_up(qdrant).await?;
 
+    println!("qdrant uri: {:?}", qdrant.config.uri);
+
+
     let pg_pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(var("DATABASE_URL").map_err(|e| anyhow!("Failed to get DATABASE_URL: {}", e))?.as_str())
@@ -61,10 +64,16 @@ async fn main() -> Result<(), AppError> {
         .map_err(|e| anyhow!("DB connection failed: {}", e))?;
 
 
+    println!("pgpool: {:?}", pg_pool);
+    
  // extract_from_chat(qdrant).await?;
 
 
-  serve(qdrant, pg_pool).await?;
+  serve(qdrant, pg_pool).await.map_err(|e| {
+      println!("main {:?}", e);
+      AppError::Unknown
+  }
+  )?;
 
     Ok(())
 }

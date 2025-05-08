@@ -88,7 +88,7 @@ async fn search_similar_images(
     Ok(Json(vec![])) // Return empty if no image found
 }
 
-pub async fn serve(qdrant: Qdrant, pg_pool: Pool<Postgres>) -> Result<(), AppError> {
+pub async fn serve(qdrant: Qdrant, pg_pool: PgPool) -> Result<(), AppError> {
     let state = AppState {
         qdrant: Arc::from(qdrant),
         pg_pool,
@@ -110,26 +110,43 @@ pub async fn serve(qdrant: Qdrant, pg_pool: Pool<Postgres>) -> Result<(), AppErr
         .allow_credentials(true);
 
     let app = Router::new()
+        .route("/", get(root))
         .route("/search", post(search_similar_images)) // Search Images
         .route("/upload", post(upload_image)) // Search Images
-        .route("/", get(root)) // Search Images
+
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(cors);
+    ;
+     //   .layer(cors);
+    
+    println!("app: {:?}", app);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0,0,0,0], 3000));
     let listener = TcpListener::bind(&addr)
         .await
-        .map_err(|e| AppError::Unknown)?;
+        .map_err(|e| {
+            println!("listener {:?}", e);
+            AppError::Unknown
+        }
+        )?;
+    
+    println!("Listening on: {}", addr);
 
     info!("Server running on {}", addr);
     axum::serve(listener, app)
         .await
-        .map_err(|e| AppError::Unknown)?;
+        .map_err(|e| {
+        println!("serve {:?}", e);
+        AppError::Unknown
+    }
+    )?;
 
     Ok(())
 }
 
 async fn root() -> &'static str {
+    println!("root get");
+
+
     "Functional call is root"
 }

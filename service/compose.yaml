@@ -34,10 +34,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    environment:
-      - LD_LIBRARY_PATH=/opt/libtorch/lib
-      - check_compatibility=false
-        # remove above line?
     networks:
       - shared-net
 

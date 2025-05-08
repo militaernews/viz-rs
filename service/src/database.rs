@@ -86,7 +86,7 @@ async fn extract_from_point(
 
     dbg!(point);
 
-    let row = query!(r#"Select s.username, s.bias, s.channel_name, s.display_name, s.invite from sources as s where s.channel_id = $1"#, chat_id)
+ /*   let row = query!(r#"Select s.username, s.bias, s.channel_name, s.display_name, s.invite from sources as s where s.channel_id = $1"#, chat_id)
        .fetch_one(pg_pool)
        .await
        .map_err(TelegramDatabaseError)?;
@@ -109,6 +109,18 @@ async fn extract_from_point(
         user_name: row.username,
         invite_hash: row.invite,
         tags: vec!["test".to_string(), "tree".to_string()],
+    }) */
+    
+    Ok(SearchResult{
+        msg_id: 0,
+        chat_id,
+        posted_at: Default::default(),
+        similarity: 0.0,
+        display_name: "".to_string(),
+        bias: None,
+        user_name: None,
+        invite_hash: None,
+        tags: vec![],
     })
 }
 
