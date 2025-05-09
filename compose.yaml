@@ -1,12 +1,51 @@
 services:
+  db:
+    image: qdrant/qdrant:latest
+    restart: always
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    expose:
+      - 6333
+      - 6334
+      - 6335
+    configs:
+      - source: qdrant_config
+        target: ./qdrant/config/production.yaml
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    networks:
+      - shared-net
+    environment:
+      - check_compatibility=false
 
+  app:
+      container_name: viz-rs
+      build:
+        context: ./service
+        target: runtime
+      #  environment:
+      #  - PORT=80
+      expose:
+        - 3000
+      ports:
+        - "3010:3000"
+      restart: unless-stopped
+      env_file:
+        - .env
+      networks:
+        - shared-net
+      volumes:
+        - ./weights:/weights
 
   frontend:
     container_name: frontend
+    image: viz-rs/frontend
     build:
       context: ./frontend
     ports:
-      - "3011:3011"
+      - "3011:3000"
     environment:
       - NODE_ENV=production
     restart: unless-stopped

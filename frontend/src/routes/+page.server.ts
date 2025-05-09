@@ -28,10 +28,14 @@ export const actions = {
 			const body = new FormData();
 			body.append('image', image);
 
-			const response = await fetch('http://localhost:3000/search', {
+			console.log("posting")
+
+			const response = await fetch('http://app:3000/search', {
 				method: 'POST',
 				body
 			});
+
+			console.log("response" + JSON.stringify(response))
 
 			if (!response.ok) {
 				return fail(400, {

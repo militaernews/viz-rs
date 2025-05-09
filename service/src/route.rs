@@ -95,6 +95,7 @@ pub async fn serve(qdrant: Qdrant, pg_pool: PgPool) -> Result<(), AppError> {
     };
 
     let origins = [
+        "http://localhost:3011".parse().unwrap(),
         "http://localhost:5173".parse().unwrap(),
         "http://rnimu-2003-d2-6f0f-5d7f-2cdc-89a-6491-94ff.a.free.pinggy.link"
             .parse()
@@ -116,8 +117,8 @@ pub async fn serve(qdrant: Qdrant, pg_pool: PgPool) -> Result<(), AppError> {
 
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-    ;
-     //   .layer(cors);
+    
+        .layer(cors);
     
     println!("app: {:?}", app);
 
