@@ -1,1 +1,25 @@
 /qdrant_data
+
+/frontend/node_modules
+
+# Output
+/frontend/.svelte-kit
+/frontend/build
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+/frontend/vite.config.js.timestamp-*
+/frontend/vite.config.ts.timestamp-*
+
+# Paraglide
+/frontend/src/lib/paraglide
+
+/service/target
+/service/*.session
+
+/service/.idea
