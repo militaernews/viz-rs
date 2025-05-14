@@ -54,10 +54,10 @@ async fn main() -> Result<(), AppError> {
     })?;
 
     println!("qdrant uri: {:?}", qdrant.config.uri);
-    
+
 //set_up(qdrant).await?;
 
-   
+dbg!(var("DATABASE_URL").unwrap());
 
 
     let pg_pool = PgPoolOptions::new()

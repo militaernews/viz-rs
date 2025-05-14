@@ -9,9 +9,12 @@ use grammers_client::types::Media;
 use grammers_client::{Client, Config, SignInError};
 use std::env::var;
 use std::{env, fs, io};
+use std::any::Any;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
+use grammers_client::grammers_tl_types::enums::Chat;
+use grammers_client::grammers_tl_types::types::{Channel};
 use tokio::time::sleep;
 
 const SESSION_FILE: &str = "image_downloader.session";
@@ -32,9 +35,19 @@ async fn process_chat_images(
         messages.total().await.unwrap_or(0)
     );
 
+    let chat_id =  match chat { 
+       Chat::Channel(c)=> format!("-100{}", c.id).parse::<i64>()?,
+        _ => chat.id()
+    };
+    
+    
+
+    
+    
+
     fs::create_dir_all(format!(
         "frontend/static/img/{}/",
-        chat.id()
+        chat_id
     ))?;
 
     let mut image_counter = 0;
@@ -46,7 +59,7 @@ async fn process_chat_images(
 
                 let temp_path = format!(
                     "frontend/static/img/{}/{}.jpg",
-                    chat.id(), msg.id()
+                    chat_id, msg.id()
                 );
 
 
@@ -61,7 +74,7 @@ async fn process_chat_images(
                     Ok(vectors) => {
                         let metadata = UploadParams {
                             msg_id: msg.id(),
-                            chat_id:chat.id(),
+                            chat_id: chat_id,
                             posted_at: msg.date(),
                         };
 

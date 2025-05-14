@@ -80,16 +80,15 @@ async fn extract_from_point(
         .payload
         .get("chat_id")
         .and_then(get_int64_value)
-        .unwrap_or(0)
+        .unwrap_or(0);
 
-        ;
-
-    dbg!(point);
-
- /*   let row = query!(r#"Select s.username, s.bias, s.channel_name, s.display_name, s.invite from sources as s where s.channel_id = $1"#, chat_id)
+    let row = query!(r#"Select s.username, s.bias, s.channel_name, s.display_name, s.invite from sources as s where s.channel_id = $1"#, chat_id)
        .fetch_one(pg_pool)
-       .await
-       .map_err(TelegramDatabaseError)?;
+      .await
+      .map_err(|e| {
+          println!("Query failed for chat_id {:?}: {:?}", chat_id, e);
+          TelegramDatabaseError(e)
+      })?;
 
     Ok(SearchResult {
         msg_id: point
@@ -109,18 +108,6 @@ async fn extract_from_point(
         user_name: row.username,
         invite_hash: row.invite,
         tags: vec!["test".to_string(), "tree".to_string()],
-    }) */
-    
-    Ok(SearchResult{
-        msg_id: 0,
-        chat_id,
-        posted_at: Default::default(),
-        similarity: 0.0,
-        display_name: "".to_string(),
-        bias: None,
-        user_name: None,
-        invite_hash: None,
-        tags: vec![],
     })
 }
 

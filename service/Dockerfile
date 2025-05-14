@@ -46,6 +46,8 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 
 
+ENV DATABASE_URL="postgresql://nm_owner:SLf4nwQEsPc1@ep-wandering-scene-a25ox7k0.eu-central-1.aws.neon.tech/nm?sslmode=require"
+
 # Copy source code
 COPY . .
 
