@@ -74,7 +74,7 @@ async fn extract_from_point(
     point: &ScoredPoint,
     pg_pool: &PgPool,
 ) -> Result<SearchResult, AppError> {
-    //dbg!(&point);
+    dbg!(&point);
 
     let chat_id = point
         .payload
@@ -86,7 +86,7 @@ async fn extract_from_point(
        .fetch_one(pg_pool)
       .await
       .map_err(|e| {
-          println!("Query failed for chat_id {:?}: {:?}", chat_id, e);
+          eprintln!("Query failed for chat_id {:?}: {:?}", chat_id, e);
           TelegramDatabaseError(e)
       })?;
 
@@ -143,7 +143,7 @@ fn get_date_value(value: &Value) -> Option<DateTime<Utc>> {
     }
 }
 
-pub async fn set_up(qdrant: Qdrant) -> Result<()> {
+pub async fn set_up(qdrant: &Qdrant) -> Result<()> {
     qdrant
         .create_collection(
             CreateCollectionBuilder::new(IMAGES_COLLECTION).vectors_config(

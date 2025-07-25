@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use http::{header, HeaderValue, Method};
 use log::info;
 use qdrant_client::Qdrant;
-use sqlx::{PgPool, Pool, Postgres};
+use sqlx::{PgPool, Postgres};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -26,7 +26,7 @@ pub struct AppState {
 async fn upload_image(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> anyhow::Result<Json<UploadResponse>, AppError> {
+) -> Result<Json<UploadResponse>, AppError> {
     let mut metadata: Option<UploadParams> = None;
     let mut vectors: Option<Vec<f32>> = None;
 
@@ -36,7 +36,7 @@ async fn upload_image(
         .map_err(AppError::MultipartError)?
     {
         let name = field.name().unwrap().to_string();
-        println!("Received file: {}", name);
+        println!("Received file: {name}");
         let data = field.bytes().await.map_err(AppError::MultipartError)?;
 
         if name == "meta" {
@@ -79,6 +79,9 @@ async fn search_similar_images(
 
         let features = extract_features(&*data)?;
 
+        println!("Extracted features `{:?}`", features);
+
+
         // Query DB for similar images
         let similar_images = search_vectors(&state.qdrant, &state.pg_pool, features, 36).await?;
 
@@ -120,7 +123,7 @@ pub async fn serve(qdrant: Qdrant, pg_pool: PgPool) -> Result<(), AppError> {
     
         .layer(cors);
     
-    println!("app: {:?}", app);
+    println!("app: {app:?}");
 
     let addr = SocketAddr::from(([0,0,0,0], 3000));
     let listener = TcpListener::bind(&addr)

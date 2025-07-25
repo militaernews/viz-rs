@@ -1,22 +1,14 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions } from './$types';
 
-export interface SearchResult {
-	msg_id: number;
-	chat_id: number;
-	posted_at: string;
-	similarity: number;
-	display_name: string;
-	user_name: string | null;
-	bias: string | undefined;
-	invite_hash: string | null;
-	tags: string[];
-}
-
 export const actions = {
 	default: async ({ request }) => {
 		const formData = await request.formData();
+
 		const image = formData.get('image') as File;
+		const startDate = formData.get('startDate')?.toString() || null;
+		const endDate = formData.get('endDate')?.toString() || null;
+		const tags = formData.get('tags')?.toString() || '';
 
 		if (!image) {
 			return fail(400, {
@@ -24,22 +16,32 @@ export const actions = {
 			});
 		}
 
+		if (startDate && endDate && new Date(endDate) < new Date(startDate)) {
+			return fail(400, {
+				error: 'End date cannot be before start date'
+			});
+		}
+
 		try {
 			const body = new FormData();
 			body.append('image', image);
 
-			console.log("posting")
+			if (startDate) body.append('startDate', startDate);
+			if (endDate) body.append('endDate', endDate);
+			if (tags.trim()) body.append('tags', tags.trim());
 
-			const response = await fetch('http://app:3000/search', {
+			console.log('Posting search request...');
+			//app
+			const response = await fetch('http://localhost:3000/search', {
 				method: 'POST',
 				body
 			});
 
-			console.log("response" + JSON.stringify(response))
+			console.log('Response status:', response.status);
 
 			if (!response.ok) {
 				return fail(400, {
-					error: 'Failed to upload image'
+					error: 'Failed to upload image. Is the server running?'
 				});
 			}
 

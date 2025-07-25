@@ -13,8 +13,8 @@ use std::any::Any;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
-use grammers_client::grammers_tl_types::enums::Chat;
-use grammers_client::grammers_tl_types::types::{Channel};
+
+use grammers_client::grammers_tl_types::types::{Channel,Chat};
 use tokio::time::sleep;
 
 const SESSION_FILE: &str = "image_downloader.session";
@@ -35,10 +35,13 @@ async fn process_chat_images(
         messages.total().await.unwrap_or(0)
     );
 
-    let chat_id =  match chat { 
-       Chat::Channel(c)=> format!("-100{}", c.id).parse::<i64>()?,
-        _ => chat.id()
-    };
+    let mut chat_id = chat.id();
+  /*    if (chat.) {  
+    
+
+        chat_id= format!("-100{}", chat.id()).parse::<i64>()?;
+      
+    }*/
     
     
 

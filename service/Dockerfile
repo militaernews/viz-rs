@@ -1,5 +1,5 @@
 # Step 1: Base image for cargo-chef and Rust toolchain
-FROM lukemathwalker/cargo-chef:latest-rust-1.86.0 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.90.0 AS chef
 WORKDIR /app
 
 

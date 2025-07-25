@@ -20,45 +20,7 @@ services:
     environment:
       - check_compatibility=false
 
-  app:
-      container_name: viz-rs
-      build:
-        context: ./service
-        target: runtime
-      #  environment:
-      #  - PORT=80
-      expose:
-        - 3000
-      ports:
-        - "3010:3000"
-      restart: unless-stopped
-      env_file:
-        - .env
-      networks:
-        - shared-net
-      volumes:
-        - ./weights:/weights
 
-  frontend:
-    container_name: frontend
-    image: viz-rs/frontend
-    build:
-      context: ./frontend
-    ports:
-      - "3011:3000"
-    environment:
-      - NODE_ENV=production
-    restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:3011" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - shared-net
-    volumes:
-      - ./images:/static/img
 
 
 configs:

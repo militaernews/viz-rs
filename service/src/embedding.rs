@@ -11,11 +11,14 @@ pub fn extract_features(img: &[u8]) -> anyhow::Result<Vec<f32>, AppError> {
 
     let image = imagenet::load_image_and_resize_from_memory(img,224,224)?;
 
+    dbg!(&image) ;
+
     let mut vs = VarStore::new(Device::Cpu);
 
     // Then the model is built on this variable store, and the weights are loaded.
     let resnet18 = resnet34(&vs.root(), imagenet::CLASS_COUNT); //todo increase classes
-    vs.load("./weights/resnet34.ot")?;
+    vs.load("../weights/resnet34.ot")?;
+
 
 
     let output = resnet18

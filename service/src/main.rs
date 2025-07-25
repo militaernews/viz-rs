@@ -46,16 +46,16 @@ async fn main() -> Result<(), AppError> {
         println!("{key}: {value}");
     }
 
-
+// db
     let qdrant = Qdrant::new(QdrantConfig {
-        uri: "http://db:6334".to_string(),
+        uri: "http://localhost:6334".to_string(),
         check_compatibility: false,  // Skip version compatibility check
         ..Default::default()
     })?;
 
     println!("qdrant uri: {:?}", qdrant.config.uri);
 
-//set_up(qdrant).await?;
+//set_up(&qdrant).await?;
 
 dbg!(var("DATABASE_URL").unwrap());
 
@@ -69,14 +69,14 @@ dbg!(var("DATABASE_URL").unwrap());
 
     println!("pgpool: {:?}", pg_pool);
 
- // extract_from_chat(qdrant).await?;
+ //extract_from_chat(qdrant).await?;
 
 
   serve(qdrant, pg_pool).await.map_err(|e| {
       println!("main {:?}", e);
       AppError::Unknown
   }
-  )?;
+  )?; 
 
     Ok(())
 }
