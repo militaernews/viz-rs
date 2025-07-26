@@ -4,7 +4,6 @@ import type { Actions } from './$types';
 export const actions = {
 	default: async ({ request }) => {
 		const formData = await request.formData();
-
 		const image = formData.get('image') as File;
 		const startDate = formData.get('startDate')?.toString() || null;
 		const endDate = formData.get('endDate')?.toString() || null;
@@ -25,13 +24,12 @@ export const actions = {
 		try {
 			const body = new FormData();
 			body.append('image', image);
-
 			if (startDate) body.append('startDate', startDate);
 			if (endDate) body.append('endDate', endDate);
 			if (tags.trim()) body.append('tags', tags.trim());
 
 			console.log('Posting search request...');
-			//app
+
 			const response = await fetch('http://localhost:3000/search', {
 				method: 'POST',
 				body
@@ -48,8 +46,14 @@ export const actions = {
 			const data = await response.json();
 
 			return {
-				success: image.name,
-				data
+				success: true,
+				data: data,
+				searchParams: {
+					imageFileName: image.name,
+					tags: tags,
+					startDate: startDate || '',
+					endDate: endDate || ''
+				}
 			};
 		} catch (error) {
 			return fail(500, {

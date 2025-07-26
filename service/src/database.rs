@@ -3,6 +3,7 @@ use crate::{AppError, SearchResult, UploadParams};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use futures::stream::StreamExt;
+use image::DynamicImage;
 use qdrant_client::prelude::{Distance, PointStruct, Value};
 use qdrant_client::qdrant::{
     value, CreateCollectionBuilder, ScoredPoint, SearchParamsBuilder,
@@ -14,6 +15,7 @@ use serde_json::json;
 use sqlx::{query, PgPool};
 use tch::vision::imagenet;
 use uuid::Uuid;
+use crate::embedding::image_to_base64;
 
 const IMAGES_COLLECTION: &str = "images";
 
@@ -21,12 +23,14 @@ pub async fn insert_images(
     qdrant: &Qdrant,
     metadata: &UploadParams,
     vectors: Vec<f32>,
+    base64str:String
 ) -> Result<(), AppError> {
     let payload: Payload = json!(
         {
             "chat_id": metadata.chat_id,
             "msg_id": metadata.msg_id,
             "posted_at": metadata.posted_at,
+            "base64": base64str
         }
     )
     .try_into()?;
@@ -86,7 +90,7 @@ async fn extract_from_point(
        .fetch_one(pg_pool)
       .await
       .map_err(|e| {
-          eprintln!("Query failed for chat_id {:?}: {:?}", chat_id, e);
+          eprintln!("Query failed for chat_id {chat_id:?}: {e:?}");
           TelegramDatabaseError(e)
       })?;
 
@@ -101,14 +105,25 @@ async fn extract_from_point(
             .payload
             .get("posted_at")
             .and_then(get_date_value)
-            .unwrap_or(DateTime::default()),
+            .unwrap_or_default(),
         similarity: point.score,
         display_name: row.display_name.unwrap_or(row.channel_name),
         bias: row.bias,
         user_name: row.username,
         invite_hash: row.invite,
         tags: vec!["test".to_string(), "tree".to_string()],
+        img: point
+            .payload
+            .get("base64").and_then(get_string_value).unwrap_or_default()
     })
+}
+
+fn get_string_value(value: &Value) -> Option<String> {
+    if let Some(value::Kind::StringValue(s)) = &value.kind {
+        Some(s.to_string())
+    } else {
+        None
+    }
 }
 
 fn get_int_value(value: &Value) -> Option<i32> {

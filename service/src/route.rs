@@ -13,6 +13,8 @@ use qdrant_client::Qdrant;
 use sqlx::{PgPool, Postgres};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -29,6 +31,7 @@ async fn upload_image(
 ) -> Result<Json<UploadResponse>, AppError> {
     let mut metadata: Option<UploadParams> = None;
     let mut vectors: Option<Vec<f32>> = None;
+    let mut base64Str:String=String::new();
 
     while let Some(field) = multipart
         .next_field()
@@ -43,14 +46,19 @@ async fn upload_image(
             metadata = serde_json::from_slice(&data).map_err(AppError::MetadataError)?;
             println!("Done receiving: {:?} - data: {:?}", metadata, data);
         } else if name == "image" {
-            vectors = Some(extract_features(&*data)?);
+            vectors = Some(extract_features(&data)?);
+            base64Str = STANDARD.encode(&data) ;
         }
+
+
     }
 
     println!("Done receiving: {:?}", metadata);
 
+
+
     if let (Some(metadata), Some(vectors)) = (metadata, vectors) {
-        insert_images(&state.qdrant, &metadata, vectors).await?;
+        insert_images(&state.qdrant, &metadata, vectors,base64Str).await?;
 
         Ok(Json(UploadResponse {
             msg_id: metadata.msg_id,

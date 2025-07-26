@@ -46,3 +46,15 @@ pub fn extract_features(img: &[u8]) -> anyhow::Result<Vec<f32>, AppError> {
 
 
 }
+use base64::{engine::general_purpose, Engine as _};
+use image::{DynamicImage, };
+use std::io::Cursor;
+use image::ImageFormat::Png;
+
+pub fn image_to_base64(img: &DynamicImage) -> String {
+    let mut image_data: Vec<u8> = Vec::new();
+    img.write_to(&mut Cursor::new(&mut image_data), Png)
+        .unwrap();
+    let res_base64 = general_purpose::STANDARD.encode(image_data);
+    format!("data:image/png;base64,{}", res_base64)
+}

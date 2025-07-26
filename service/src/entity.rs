@@ -26,4 +26,5 @@ pub struct SearchResult {
     pub(crate) user_name: Option<String>,
     pub(crate) invite_hash: Option<String>,
     pub(crate) tags: Vec<String>,
+    pub(crate) img: String,
 }

@@ -8,4 +8,5 @@ export interface SearchResult {
 	bias: string | undefined;
 	invite_hash: string | null;
 	tags: string[];
+	img: string;
 }

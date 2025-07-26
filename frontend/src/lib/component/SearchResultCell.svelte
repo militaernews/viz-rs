@@ -101,8 +101,9 @@
 >
 	<!-- Image Container -->
 	<div class="relative aspect-[4/3] overflow-hidden">
+		{@debug result}
 		<img
-			src="/img/{result.chat_id}/{result.msg_id}.jpg"
+			src="data:image/png;base64,{result.img}"
 			class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
 			alt="Search result from {result.display_name}"
 			loading="lazy"

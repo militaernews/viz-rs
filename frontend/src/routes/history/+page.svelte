@@ -1,6 +1,7 @@
 <script lang="ts">
 	import SearchResultCell from '$lib/component/SearchResultCell.svelte';
 	import DetailsModal from '$lib/component/DetailsModal.svelte';
+	import { browser } from '$app/environment';
 
 	// Icons
 	import FluentArrowLeft24Regular from '~icons/fluent/arrow-left-24-regular';
@@ -9,61 +10,39 @@
 	import FluentImage24Regular from '~icons/fluent/image-24-regular';
 	import FluentTag24Regular from '~icons/fluent/tag-24-regular';
 	import FluentCalendar24Regular from '~icons/fluent/calendar-24-regular';
+	import FluentVideo24Regular from '~icons/fluent/video-24-regular';
 
 	// Types
-	interface SearchResult {
-		msg_id: number;
-		chat_id: number;
-		posted_at: string;
-		similarity: number;
-		display_name: string;
-		user_name: string | null;
-		bias: string | undefined;
-		invite_hash: string | null;
-		tags: string[];
-		img: string;
-	}
-
-	interface SearchHistoryEntry {
-		id: string;
-		timestamp: number;
-		results: SearchResult[];
-		searchParams: {
-			tags: string[];
-			startDate: string;
-			endDate: string;
-			imageFileName?: string;
-		};
-	}
+	import type { SearchResult } from '$lib/SearchResult';
+	import type { SearchHistoryEntry } from '$lib/SearchHistoryEntry';
 
 	// State
 	let searchHistory = $state<SearchHistoryEntry[]>([]);
 	let selectedEntry = $state<SearchHistoryEntry | null>(null);
 	let dialog: HTMLDialogElement | undefined = $state();
 	let details: SearchResult | null = $state(null);
+	let isLoading = $state(true);
 
 	// Local storage key
 	const HISTORY_STORAGE_KEY = 'search_history_v2';
 
 	// Load history from localStorage
 	function loadHistory() {
+		if (!browser) return;
+
 		try {
 			const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
 			if (stored) {
-				searchHistory = JSON.parse(stored);
+				const parsed = JSON.parse(stored);
+				if (Array.isArray(parsed)) {
+					searchHistory = parsed.sort((a, b) => b.timestamp - a.timestamp);
+				}
 			}
 		} catch (error) {
 			console.error('Failed to load history:', error);
 			searchHistory = [];
-		}
-	}
-
-	// Save history to localStorage
-	function saveHistory() {
-		try {
-			localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(searchHistory));
-		} catch (error) {
-			console.error('Failed to save history:', error);
+		} finally {
+			isLoading = false;
 		}
 	}
 
@@ -73,7 +52,13 @@
 		if (selectedEntry?.id === entryId) {
 			selectedEntry = null;
 		}
-		saveHistory();
+
+		// Save back to localStorage
+		try {
+			localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(searchHistory));
+		} catch (error) {
+			console.error('Failed to save after deletion:', error);
+		}
 	}
 
 	// Clear all history
@@ -81,28 +66,36 @@
 		if (confirm('Are you sure you want to clear all search history? This cannot be undone.')) {
 			searchHistory = [];
 			selectedEntry = null;
-			saveHistory();
+
+			try {
+				localStorage.removeItem(HISTORY_STORAGE_KEY);
+			} catch (error) {
+				console.error('Failed to clear localStorage:', error);
+			}
 		}
 	}
 
 	// Export history entry
 	function exportHistoryEntry(entry: SearchHistoryEntry) {
-		const exportData = {
-			timestamp: entry.timestamp,
-			results: entry.results,
-			searchParams: entry.searchParams,
-			exportedAt: new Date().toISOString()
-		};
+		try {
+			const exportData = {
+				...entry,
+				exportedAt: new Date().toISOString()
+			};
 
-		const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `search_history_${new Date(entry.timestamp).toISOString().split('T')[0]}.json`;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
+			const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `search_history_${new Date(entry.timestamp).toISOString().split('T')[0]}.json`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error('Failed to export:', error);
+			alert('Failed to export search history.');
+		}
 	}
 
 	// Format date for display
@@ -121,9 +114,26 @@
 		window.location.href = '/';
 	}
 
-	// Load history on component mount
+	// Load history on mount
 	$effect(() => {
 		loadHistory();
+	});
+
+	// Listen for storage events (updates from other tabs)
+	$effect(() => {
+		if (!browser) return;
+
+		const handleStorageChange = (e: StorageEvent) => {
+			if (e.key === HISTORY_STORAGE_KEY) {
+				loadHistory();
+			}
+		};
+
+		window.addEventListener('storage', handleStorageChange);
+
+		return () => {
+			window.removeEventListener('storage', handleStorageChange);
+		};
 	});
 </script>
 
@@ -151,7 +161,13 @@
 	</div>
 
 	<div class="container mx-auto max-w-7xl px-4 py-8">
-		{#if searchHistory.length === 0}
+		{#if isLoading}
+			<!-- Loading -->
+			<div class="py-16 text-center">
+				<span class="loading loading-spinner loading-lg text-primary"></span>
+				<p class="text-base-content/60 mt-4">Loading search history...</p>
+			</div>
+		{:else if searchHistory.length === 0}
 			<!-- Empty State -->
 			<div class="py-16 text-center">
 				<div class="text-base-content/60 mb-4 text-6xl">📜</div>
@@ -159,7 +175,7 @@
 				<p class="text-base-content/60 mb-6">
 					Your visual search results will appear here once you start searching.
 				</p>
-				<button onclick={goBack} class="btn btn-primary"> Start Searching </button>
+				<button onclick={goBack} class="btn btn-primary">Start Searching</button>
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
@@ -222,6 +238,13 @@
 												</div>
 											{/if}
 
+											{#if entry.searchParams.videoFileName}
+												<div class="flex items-center gap-1">
+													<FluentVideo24Regular class="h-3 w-3" />
+													{entry.searchParams.videoFileName}
+												</div>
+											{/if}
+
 											{#if entry.searchParams.tags.length > 0}
 												<div class="flex items-center gap-1">
 													<FluentTag24Regular class="h-3 w-3" />
@@ -257,7 +280,7 @@
 						</div>
 
 						<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
-							{#each selectedEntry.results as result, index}
+							{#each selectedEntry.results as result}
 								<div class="group">
 									<SearchResultCell
 										{result}

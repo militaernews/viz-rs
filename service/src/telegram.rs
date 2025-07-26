@@ -13,8 +13,9 @@ use std::any::Any;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
-
-use grammers_client::grammers_tl_types::types::{Channel,Chat};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use grammers_client::grammers_tl_types::types::{Channel, Chat};
 use tokio::time::sleep;
 
 const SESSION_FILE: &str = "image_downloader.session";
@@ -49,8 +50,8 @@ async fn process_chat_images(
     
 
     fs::create_dir_all(format!(
-        "frontend/static/img/{}/",
-        chat_id
+        "frontend/static/img/{chat_id}/",
+
     ))?;
 
     let mut image_counter = 0;
@@ -61,8 +62,8 @@ async fn process_chat_images(
             if let Media::Photo(img) = media {
 
                 let temp_path = format!(
-                    "frontend/static/img/{}/{}.jpg",
-                    chat_id, msg.id()
+                    "frontend/static/img/{chat_id}/{}.jpg"
+                    , msg.id()
                 );
 
 
@@ -73,6 +74,8 @@ async fn process_chat_images(
 
                 let bytes = fs::read(temp_path)?;
 
+
+
                 match extract_features(&bytes) {
                     Ok(vectors) => {
                         let metadata = UploadParams {
@@ -81,16 +84,18 @@ async fn process_chat_images(
                             posted_at: msg.date(),
                         };
 
+
+
                         // Insert into Qdrant
-                        insert_images(qdrant, &metadata, vectors).await?;
+                        insert_images(qdrant, &metadata, vectors,STANDARD.encode(&bytes) ).await?;
 
                         image_counter += 1;
                         if image_counter % 10 == 0 {
-                            println!("Processed {} images", image_counter);
+                            println!("Processed {image_counter} images" );
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to extract features from message {}: {}", msg.id(), e);
+                        eprintln!("Failed to extract features from message {}: {e:?}", msg.id() );
                         continue;
                     }
                 }
