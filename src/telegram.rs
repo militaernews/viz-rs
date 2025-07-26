@@ -82,6 +82,7 @@ async fn process_chat_images(
                             msg_id: msg.id(),
                             chat_id: chat_id,
                             posted_at: msg.date(),
+                            collection:"ukraine".to_string(),
                         };
 
 

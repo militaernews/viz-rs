@@ -2,31 +2,31 @@ use crate::error::AppError::TelegramDatabaseError;
 use crate::{AppError, SearchResult, UploadParams};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use futures::stream::StreamExt;
-use image::DynamicImage;
-use qdrant_client::prelude::{Distance, PointStruct, Value};
-use qdrant_client::qdrant::{
-    value, CreateCollectionBuilder, ScoredPoint, SearchParamsBuilder,
-    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
-    Filter, Condition, FieldCondition, Range,
-};
+
+
+use qdrant_client::qdrant::{value, CreateCollectionBuilder, ScoredPoint, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder, Filter, Condition, FieldCondition, Range, Distance, Value, PointStruct};
 use qdrant_client::{Payload, Qdrant};
 use serde_json::json;
 use sqlx::{query, PgPool};
 use tch::vision::imagenet;
 use uuid::Uuid;
-use crate::embedding::image_to_base64;
 use log::{info, debug, warn, error};
 use tch::vision::imagenet::CLASSES;
-
-const IMAGES_COLLECTION: &str = "images";
 
 pub async fn insert_images(
     qdrant: &Qdrant,
     metadata: &UploadParams,
     vectors: Vec<f32>,
     base64str: String
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
+    let collection_name = &metadata.collection;
+
+    // Check if collection exists
+    if !collection_exists(qdrant, collection_name).await? {
+        error!("Collection '{}' does not exist", collection_name);
+        return Err(AppError::CollectionNotFound(collection_name.to_string()));
+    }
+
     let payload: Payload = json!(
         {
             "chat_id": metadata.chat_id,
@@ -38,18 +38,19 @@ pub async fn insert_images(
         .try_into()?;
 
     let id = Uuid::new_v4().to_string();
-    debug!("Inserting image with ID: {}, chat_id: {}, msg_id: {}",
-           id, metadata.chat_id, metadata.msg_id);
+    debug!("Inserting image with ID: {}, chat_id: {}, msg_id: {} into collection: {}",
+           id, metadata.chat_id, metadata.msg_id, collection_name);
 
     let points = vec![PointStruct::new(id, vectors, payload)];
     qdrant
-        .upsert_points(UpsertPointsBuilder::new(IMAGES_COLLECTION, points))
+        .upsert_points(UpsertPointsBuilder::new(collection_name, points))
         .await
         .map_err(AppError::VectorDatabaseError)?;
 
-    info!("Successfully inserted image for chat_id: {}, msg_id: {}",
-          metadata.chat_id, metadata.msg_id);
-    Ok(())
+    info!("Successfully inserted image for chat_id: {}, msg_id: {} into collection: {}",
+          metadata.chat_id, metadata.msg_id, collection_name);
+
+    Ok(collection_name.to_string())
 }
 
 pub async fn search_vectors(
@@ -59,11 +60,19 @@ pub async fn search_vectors(
     limit: u64,
     start_from: Option<DateTime<Utc>>,
     start_after: Option<DateTime<Utc>>,
-) -> Result<Vec<SearchResult>> {
-    debug!("Searching vectors with limit: {}, date filters: from={:?}, after={:?}",
-           limit, start_from, start_after);
+    collection_name: String
+) -> Result<Vec<SearchResult>,AppError> {
 
-    let mut search_builder = SearchPointsBuilder::new(IMAGES_COLLECTION, query_vector, limit)
+    // Check if collection exists
+    if !collection_exists(qdrant, &collection_name).await? {
+        error!("Collection '{}' does not exist", collection_name);
+        return Err(AppError::CollectionNotFound(collection_name.to_string()));
+    }
+
+    debug!("Searching vectors in collection '{}' with limit: {}, date filters: from={:?}, after={:?}",
+           collection_name, limit, start_from, start_after);
+
+    let mut search_builder = SearchPointsBuilder::new(&collection_name, query_vector, limit)
         .params(SearchParamsBuilder::default().hnsw_ef(256).exact(false))
         .with_payload(true)
         .with_vectors(false);
@@ -78,7 +87,7 @@ pub async fn search_vectors(
         .await
         .map_err(AppError::VectorDatabaseError)?;
 
-    debug!("Vector search returned {} points", search_response.result.len());
+    debug!("Vector search in '{}' returned {} points", collection_name, search_response.result.len());
 
     let futures: Vec<_> = search_response
         .result
@@ -87,7 +96,7 @@ pub async fn search_vectors(
         .collect();
 
     let converted = futures::future::try_join_all(futures).await?;
-    info!("Successfully processed {} search results", converted.len());
+    info!("Successfully processed {} search results from collection '{}'", converted.len(), collection_name);
 
     Ok(converted)
 }
@@ -99,15 +108,23 @@ pub async fn search_by_tags(
     limit: u64,
     start_from: Option<DateTime<Utc>>,
     start_after: Option<DateTime<Utc>>,
+    collection_name: String,
 ) -> Result<Vec<SearchResult>, AppError> {
-    info!("Searching by tags: {:?}", tags);
+
+    // Check if collection exists
+    if !collection_exists(qdrant, &*collection_name).await? {
+        error!("Collection '{}' does not exist", collection_name);
+        return Err(AppError::CollectionNotFound(collection_name.to_string()));
+    }
+
+    info!("Searching by tags: {:?} in collection '{}'", tags, collection_name);
 
     // Convert tags to a query vector using ImageNet class matching
     let query_vector = tags_to_vector(&tags)?;
 
-    debug!("Generated query vector from {} tags", tags.len());
+    debug!("Generated query vector from {} tags for collection '{}'", tags.len(), collection_name);
 
-    let mut search_builder = SearchPointsBuilder::new(IMAGES_COLLECTION, query_vector, limit)
+    let mut search_builder = SearchPointsBuilder::new(&collection_name, query_vector, limit)
         .params(SearchParamsBuilder::default().hnsw_ef(256).exact(false))
         .with_payload(true)
         .with_vectors(false);
@@ -122,7 +139,7 @@ pub async fn search_by_tags(
         .await
         .map_err(AppError::VectorDatabaseError)?;
 
-    debug!("Tag search returned {} points", search_response.result.len());
+    debug!("Tag search in '{}' returned {} points", collection_name, search_response.result.len());
 
     let futures: Vec<_> = search_response
         .result
@@ -132,11 +149,11 @@ pub async fn search_by_tags(
 
     let converted = futures::future::try_join_all(futures).await
         .map_err(|e| {
-            error!("Failed to process search results: {:?}", e);
+            error!("Failed to process search results from collection '{}': {:?}", collection_name, e);
             AppError::Unknown
         })?;
 
-    info!("Successfully processed {} tag search results", converted.len());
+    info!("Successfully processed {} tag search results from collection '{}'", converted.len(), collection_name);
     Ok(converted)
 }
 
@@ -360,8 +377,21 @@ fn get_date_value(value: &Value) -> Option<DateTime<Utc>> {
     }
 }
 
+async fn collection_exists(qdrant: &Qdrant, collection_name: &str) -> Result<bool, AppError> {
+    match qdrant.collection_info(collection_name).await {
+        Ok(_) => {
+            debug!("Collection '{}' exists", collection_name);
+            Ok(true)
+        },
+        Err(e) => {
+            debug!("Collection '{}' does not exist: {:?}", collection_name, e);
+            Ok(false)
+        }
+    }
+}
+
 pub async fn set_up(qdrant: &Qdrant) -> Result<()> {
-    info!("Setting up Qdrant collection: {}", IMAGES_COLLECTION);
+  /*  info!("Setting up Qdrant collection: {}", IMAGES_COLLECTION);
 
     qdrant
         .create_collection(
@@ -371,6 +401,22 @@ pub async fn set_up(qdrant: &Qdrant) -> Result<()> {
         )
         .await?;
 
-    info!("Successfully created collection: {}", IMAGES_COLLECTION);
+    info!("Successfully created collection: {}", IMAGES_COLLECTION); */
+    Ok(())
+}
+
+pub async fn create_collection(qdrant: &Qdrant, collection_name: &str) -> Result<(), AppError> {
+    info!("Creating new collection: {}", collection_name);
+
+    qdrant
+        .create_collection(
+            CreateCollectionBuilder::new(collection_name).vectors_config(
+                VectorParamsBuilder::new(imagenet::CLASS_COUNT as u64, Distance::Cosine),
+            ),
+        )
+        .await
+        .map_err(AppError::VectorDatabaseError)?;
+
+    info!("Successfully created collection: {}", collection_name);
     Ok(())
 }

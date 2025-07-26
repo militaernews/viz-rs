@@ -1,52 +1,63 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
-use axum::response::IntoResponse;
-use qdrant_client::QdrantError;
 use serde_json::json;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum AppError {
-    #[error("Vector Database error: {0}")]
-    VectorDatabaseError(#[from] QdrantError),
+    #[error("Vector database error: {0}")]
+    VectorDatabaseError(#[from] qdrant_client::QdrantError),
 
-    #[error("Telegram Database error: {0}")]
+    #[error("Telegram database error: {0}")]
     TelegramDatabaseError(#[from] sqlx::Error),
 
-    #[error("Image processing error: {0}")]
-    ImageProcessingError(#[from] image::ImageError),
-
-    #[error("Model loading error: {0}")]
-    ModelLoadingError(#[from] tch::TchError),
-
-    #[error("Nested error: {0}")]
-    NestedError(#[from] anyhow::Error),
-
-    #[error("Multipart field error: {0}")]
-    MultipartError(#[from] axum::extract::multipart::MultipartError),
-
-    #[error("Incorrect Metadata provided: {0}")]
+    #[error("Metadata parsing error: {0}")]
     MetadataError(#[from] serde_json::Error),
 
+    #[error("Multipart form error: {0}")]
+    MultipartError(#[from] axum::extract::multipart::MultipartError),
 
-    #[error("No image uploaded")]
+    #[error("No image was uploaded")]
     NoImageUploaded,
+
+    #[error("Collection '{0}' not found")]
+    CollectionNotFound( String),
 
     #[error("Unknown error occurred")]
     Unknown,
 }
 
 impl IntoResponse for AppError {
-    fn into_response(self) -> axum::response::Response {
-        let status_code = match &self {
-            AppError::VectorDatabaseError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::TelegramDatabaseError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::ImageProcessingError(_) => http::StatusCode::BAD_REQUEST,
-            AppError::ModelLoadingError(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            AppError::MultipartError(_) => http::StatusCode::BAD_REQUEST,
-            AppError::NoImageUploaded => http::StatusCode::BAD_REQUEST,
-            AppError::Unknown => http::StatusCode::INTERNAL_SERVER_ERROR,
-            _ => http::StatusCode::INTERNAL_SERVER_ERROR
+    fn into_response(self) -> Response {
+        let (status, error_message):(StatusCode,String) = match self {
+            AppError::VectorDatabaseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Vector database error".parse().unwrap()),
+            AppError::TelegramDatabaseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error".parse().unwrap()),
+            AppError::MetadataError(_) => (StatusCode::BAD_REQUEST, "Invalid metadata format".parse().unwrap()),
+            AppError::MultipartError(_) => (StatusCode::BAD_REQUEST, "Invalid multipart data".parse().unwrap()),
+            AppError::NoImageUploaded => (StatusCode::BAD_REQUEST, "No image uploaded".parse().unwrap()),
+            AppError::CollectionNotFound(ref name) => (StatusCode::NOT_FOUND, format!("Collection '{}' not found", name)),
+            AppError::Unknown => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".parse().unwrap()),
         };
-        (status_code, self.to_string() ).into_response()
+
+        let body = Json(json!({
+            "error": error_message,
+            "details": self.to_string()
+        }));
+
+        (status, body).into_response()
+    }
+}
+
+// Manual From implementations for errors that should map to Unknown
+impl From<tch::TchError> for AppError {
+    fn from(_err: tch::TchError) -> Self {
+        AppError::Unknown
+    }
+}
+
+impl From<anyhow::Error> for AppError {
+    fn from(_err: anyhow::Error) -> Self {
+        AppError::Unknown
     }
 }
