@@ -1,22 +1,22 @@
-use std::collections::HashMap;
-use std::iter::Map;
-use crate::database::{insert_images, search_vectors, search_by_tags, create_collection};
+use crate::database::{create_collection, insert_images, search_by_tags, search_vectors};
 use crate::embedding::extract_features;
-use crate::entity::{MetadataResponse, SearchResult, UploadParams, UploadResponse, TextSearchParams, ImageSearchParams};
+use crate::entity::{ImageSearchParams, MetadataResponse, SearchResult, TextSearchParams, UploadParams, UploadResponse};
 use crate::AppError;
 use anyhow::Result;
 use axum::extract::{FromRef, Multipart, State};
 use axum::routing::get;
 use axum::routing::post;
 use axum::{Json, Router};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use http::{header, HeaderValue, Method};
-use log::{info, debug, warn};
+use log::{debug, info, warn};
 use qdrant_client::Qdrant;
 use sqlx::{PgPool, Postgres};
+use std::collections::HashMap;
+use std::iter::Map;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -87,13 +87,19 @@ async fn search_similar_images(
 
         debug!("Received field '{}' with {} bytes", name, data.len());
 
+        if(data.len()==0){
+            return Err(AppError::NoImageUploaded);
+        }
+
         match name.as_str() {
             "image" => {
+
                 image_data = Some(data.to_vec());
             }
             "params" => {
                 search_params = serde_json::from_slice(&data)
                     .map_err(AppError::MetadataError)?;
+                dbg!(&search_params);
             }
             _ => {
                 warn!("Unknown field in multipart data: {}", name);
@@ -105,15 +111,15 @@ async fn search_similar_images(
         let features = extract_features(&data)?;
         debug!("Extracted {} features from image", features.len());
 
-        let params = search_params.unwrap(); // return error
+        let params = search_params.unwrap(); // todo:return error
 
         let similar_images = search_vectors(
             &state.qdrant,
             &state.pg_pool,
             features,
-            params.limit.unwrap_or(36),
-            params.posted_before,
+            params.limit.unwrap_or(20),
             params.posted_after,
+            params.posted_before,
             params.collection
         ).await?;
 

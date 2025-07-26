@@ -5,28 +5,28 @@ mod route;
 mod error;
 mod embedding;
 
-use std::env::var;
 use anyhow::{anyhow, Result};
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
+use std::env::var;
 
-use crate::entity::{SearchResult, UploadParams, TextSearchParams, ImageSearchParams};
+use crate::entity::{ImageSearchParams, SearchResult, TextSearchParams, UploadParams};
 use crate::error::AppError;
 use crate::telegram::extract_from_chat;
 use axum::extract::FromRef;
 use dotenvy::dotenv;
 use log::info;
 
+use crate::database::set_up;
+use crate::route::serve;
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::Qdrant;
 use sqlx::postgres::PgPoolOptions;
-use tch::nn::ModuleT;
 use tch::nn::Module;
-use tracing_subscriber::EnvFilter;
+use tch::nn::ModuleT;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use crate::database::set_up;
-use crate::route::serve;
+use tracing_subscriber::EnvFilter;
 
 // Set Up Axum Server
 #[tokio::main]
@@ -35,10 +35,11 @@ async fn main() -> Result<(), AppError> {
 
     tracing_subscriber::registry()
         .with(EnvFilter::new(var("RUST_LOG").unwrap_or_else(
-            |_| "axum_login=debug,tower_sessions=debug,sqlx=warn,tower_http=debug,info".into(),
+            |_| "axum_login=debug,tower_sessions=debug,sqlx=warn,tower_http=debug,info,viz_rs=debug,info".into(),
         )))
         .with(tracing_subscriber::fmt::layer())
         .try_init().expect("Failed to initialise logging");
+
 
     info!("Starting application with logging enabled");
     info!("Environment variables loaded");
@@ -52,7 +53,7 @@ async fn main() -> Result<(), AppError> {
     // Initialize Qdrant
     let qdrant = Qdrant::new(QdrantConfig {
         uri: "http://localhost:6334".to_string(),
-        check_compatibility: false,  // Skip version compatibility check
+
         ..Default::default()
     })?;
 

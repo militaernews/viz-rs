@@ -4,18 +4,16 @@ use anyhow::Result;
 use qdrant_client::Qdrant;
 
 use crate::embedding::extract_features;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use grammers_client::session::Session;
 use grammers_client::types::Media;
 use grammers_client::{Client, Config, SignInError};
 use std::env::var;
-use std::{env, fs, io};
-use std::any::Any;
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::time::Duration;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
-use grammers_client::grammers_tl_types::types::{Channel, Chat};
+use std::{fs, io};
 use tokio::time::sleep;
 
 const SESSION_FILE: &str = "image_downloader.session";

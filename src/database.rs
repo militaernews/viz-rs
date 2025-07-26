@@ -1,17 +1,18 @@
 use crate::error::AppError::TelegramDatabaseError;
 use crate::{AppError, SearchResult, UploadParams};
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
+use std::time::{Duration, UNIX_EPOCH};
 
 
-use qdrant_client::qdrant::{value, CreateCollectionBuilder, ScoredPoint, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder, Filter, Condition, FieldCondition, Range, Distance, Value, PointStruct};
+use log::{debug, error, info, warn};
+use qdrant_client::qdrant::{value, Condition, CreateCollectionBuilder, DatetimeRange, Distance, FieldCondition, Filter, PointStruct, Range, ScoredPoint, SearchParamsBuilder, SearchPointsBuilder, Timestamp, UpsertPointsBuilder, Value, VectorParamsBuilder};
 use qdrant_client::{Payload, Qdrant};
 use serde_json::json;
 use sqlx::{query, PgPool};
 use tch::vision::imagenet;
-use uuid::Uuid;
-use log::{info, debug, warn, error};
 use tch::vision::imagenet::CLASSES;
+use uuid::Uuid;
 
 pub async fn insert_images(
     qdrant: &Qdrant,
@@ -58,8 +59,8 @@ pub async fn search_vectors(
     pg_pool: &PgPool,
     query_vector: Vec<f32>,
     limit: u64,
-    start_from: Option<DateTime<Utc>>,
-    start_after: Option<DateTime<Utc>>,
+    posted_after: Option<DateTime<Utc>>,
+    posted_before: Option<DateTime<Utc>>,
     collection_name: String
 ) -> Result<Vec<SearchResult>,AppError> {
 
@@ -69,8 +70,8 @@ pub async fn search_vectors(
         return Err(AppError::CollectionNotFound(collection_name.to_string()));
     }
 
-    debug!("Searching vectors in collection '{}' with limit: {}, date filters: from={:?}, after={:?}",
-           collection_name, limit, start_from, start_after);
+    debug!("Searching vectors in collection '{}' with limit: {}, date filters: after={:?}, before={:?}",
+           collection_name, limit, posted_after, posted_before);
 
     let mut search_builder = SearchPointsBuilder::new(&collection_name, query_vector, limit)
         .params(SearchParamsBuilder::default().hnsw_ef(256).exact(false))
@@ -78,7 +79,7 @@ pub async fn search_vectors(
         .with_vectors(false);
 
     // Add date filters if provided
-    if let Some(filter) = build_date_filter(start_from, start_after) {
+    if let Some(filter) = build_date_filter(posted_after, posted_before) {
         search_builder = search_builder.filter(filter);
     }
 
@@ -106,8 +107,8 @@ pub async fn search_by_tags(
     pg_pool: &PgPool,
     tags: Vec<String>,
     limit: u64,
-    start_from: Option<DateTime<Utc>>,
-    start_after: Option<DateTime<Utc>>,
+    posted_after: Option<DateTime<Utc>>,
+    posted_before: Option<DateTime<Utc>>,
     collection_name: String,
 ) -> Result<Vec<SearchResult>, AppError> {
 
@@ -130,7 +131,7 @@ pub async fn search_by_tags(
         .with_vectors(false);
 
     // Add date filters if provided
-    if let Some(filter) = build_date_filter(start_from, start_after) {
+    if let Some(filter) = build_date_filter(posted_after, posted_before) {
         search_builder = search_builder.filter(filter);
     }
 
@@ -158,79 +159,64 @@ pub async fn search_by_tags(
 }
 
 fn build_date_filter(
-    start_from: Option<DateTime<Utc>>,
-    start_after: Option<DateTime<Utc>>,
+    posted_after: Option<DateTime<Utc>>,
+    posted_before: Option<DateTime<Utc>>,
 ) -> Option<Filter> {
-    if start_from.is_none() && start_after.is_none() {
+    if posted_after.is_none() && posted_before.is_none() {
         return None;
     }
 
-    let mut conditions = Vec::new();
 
-    if let Some(from_date) = start_from {
-        debug!("Adding start_from filter: {}", from_date);
-        conditions.push(Condition {
-            condition_one_of: Some(
-                qdrant_client::qdrant::condition::ConditionOneOf::Field(
-                    FieldCondition {
-                        key: "posted_at".to_string(),
-                        r#match: None,
-                        range: Some(Range {
-                            gte: Some(from_date.to_rfc3339().parse().unwrap()),
-                            gt: None,
-                            lte: None,
-                            lt: None,
-                        }),
-                        geo_bounding_box: None,
-                        geo_radius: None,
-                        values_count: None,
-                        geo_polygon: None,
-                        datetime_range: None,
-                        is_empty: None,
-                        is_null: None,
-                    }
-                )
-            )
-        });
+    let mut datetime_range = DatetimeRange {
+        gt: None,
+        gte: None,
+        lt: None,
+        lte: None,
+    };
+
+    if let Some(after_dt) = posted_after {
+        // Correct conversion from chrono::DateTime<Utc> to std::time::SystemTime
+        // Convert to nanoseconds since UNIX_EPOCH, then to SystemTime
+        let duration_since_epoch = Duration::new(
+            after_dt.timestamp() as u64,
+            after_dt.nanosecond(),
+        );
+        let system_time_after = UNIX_EPOCH + duration_since_epoch;
+
+        // Then convert std::time::SystemTime to qdrant_client::qdrant::Timestamp
+        let timestamp_after: Timestamp = system_time_after.into();
+
+
+        debug!("Adding posted_after filter (Timestamp): {:?}", timestamp_after);
+        datetime_range.gt = Some(timestamp_after);
     }
 
-    if let Some(after_date) = start_after {
-        debug!("Adding start_after filter: {}", after_date);
-        conditions.push(Condition {
-            condition_one_of: Some(
-                qdrant_client::qdrant::condition::ConditionOneOf::Field(
-                    FieldCondition {
-                        key: "posted_at".to_string(),
-                        r#match: None,
-                        range: Some(Range {
-                            gte: None,
-                            gt: Some(after_date.to_rfc3339().parse().unwrap()),
-                            lte: None,
-                            lt: None,
-                        }),
-                        geo_bounding_box: None,
-                        geo_radius: None,
-                        values_count: None,
-                        geo_polygon: None,
-                        datetime_range: None,
-                        is_empty: None,
-                        is_null: None,
-                    }
-                )
-            )
-        });
+    if let Some(before_dt) = posted_before {
+        // Correct conversion from chrono::DateTime<Utc> to std::time::SystemTime
+        let duration_since_epoch = Duration::new(
+            before_dt.timestamp() as u64,
+            before_dt.nanosecond(),
+        );
+        let system_time_before = UNIX_EPOCH + duration_since_epoch;
+
+        // Then convert std::time::SystemTime to qdrant_client::qdrant::Timestamp
+        let timestamp_before: Timestamp = system_time_before.into();
+
+
+        debug!("Adding posted_before filter (Timestamp): {:?}", timestamp_before);
+        datetime_range.lte = Some(timestamp_before);
     }
 
-    if conditions.is_empty() {
-        None
-    } else {
-        Some(Filter {
-            should: vec![],
-            min_should: None,
-            must: conditions,
-            must_not: vec![],
-        })
-    }
+    Some(Filter {
+        must: vec![
+            Condition::datetime_range("posted_at",datetime_range)
+        ],
+        // No 'should' or 'must_not' for this simple date filter
+        should: Vec::new(),
+        must_not: Vec::new(),
+        min_should: None,
+    })
+
 }
 
 fn tags_to_vector(tags: &[String]) -> Result<Vec<f32>, AppError> {

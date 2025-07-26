@@ -22,7 +22,7 @@ pub enum AppError {
     NoImageUploaded,
 
     #[error("Collection '{0}' not found")]
-    CollectionNotFound( String),
+    CollectionNotFound(String),
 
     #[error("Unknown error occurred")]
     Unknown,
@@ -30,7 +30,7 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, error_message):(StatusCode,String) = match self {
+        let (status, error_message): (StatusCode, String) = match self {
             AppError::VectorDatabaseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Vector database error".parse().unwrap()),
             AppError::TelegramDatabaseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error".parse().unwrap()),
             AppError::MetadataError(_) => (StatusCode::BAD_REQUEST, "Invalid metadata format".parse().unwrap()),
