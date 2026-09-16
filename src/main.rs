@@ -51,8 +51,9 @@ async fn main() -> Result<(), AppError> {
     }
 
     // Initialize Qdrant
+    let qdrant_url = var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
     let qdrant = Qdrant::new(QdrantConfig {
-        uri: "http://localhost:6334".to_string(),
+        uri: qdrant_url,
 
         ..Default::default()
     })?;
@@ -75,8 +76,12 @@ async fn main() -> Result<(), AppError> {
 
     info!("Successfully connected to PostgreSQL");
 
-    // Uncomment to extract from Telegram chat
+    // Uncomment to backfill nn_backup's existing history
     // extract_from_chat(qdrant).await?;
+
+    // Uncomment to watch NYX_Memes for new posts as they arrive (long-running;
+    // first run needs an interactive terminal to enter the Telegram login code)
+    // crate::telegram::watch_new_posts(qdrant, "NYX_Memes", "memes").await?;
 
     info!("Starting web server");
     serve(qdrant, pg_pool).await.map_err(|e| {

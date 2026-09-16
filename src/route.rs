@@ -3,17 +3,20 @@ use crate::embedding::extract_features;
 use crate::entity::{ImageSearchParams, MetadataResponse, SearchResult, TextSearchParams, UploadParams, UploadResponse};
 use crate::AppError;
 use anyhow::Result;
-use axum::extract::{FromRef, Multipart, State};
+use axum::extract::{FromRef, Multipart, Request, State};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::get;
 use axum::routing::post;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use http::{header, HeaderValue, Method};
+use http::{header, HeaderValue, Method, StatusCode};
 use log::{debug, info, warn};
 use qdrant_client::Qdrant;
 use sqlx::{PgPool, Postgres};
 use std::collections::HashMap;
+use std::env::var;
 use std::iter::Map;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -166,37 +169,87 @@ async fn create_new_collection(
     Ok(Json(format!("Collection '{}' created successfully", collection_name)))
 }
 
+const API_KEY_HEADER: &str = "x-api-key";
+
+/// Byte-length-independent-timing comparison; avoids leaking the shared secret
+/// through response-time differences.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
+/// Only viz-sv's SvelteKit server (which holds BACKEND_API_KEY as a private env var)
+/// is meant to reach this API directly - end-user browsers never see this URL or key.
+async fn require_api_key(request: Request, next: Next) -> Result<Response, StatusCode> {
+    let expected = var("BACKEND_API_KEY").map_err(|_| {
+        log::error!("BACKEND_API_KEY is not set; refusing all requests");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let provided = request
+        .headers()
+        .get(API_KEY_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+/// Cross-origin browser access isn't needed now that only the SvelteKit backend calls
+/// this API server-to-server, but CORS_ALLOWED_ORIGINS stays configurable for local
+/// debugging (e.g. hitting the API directly from a browser during development).
+fn build_cors_layer() -> CorsLayer {
+    let configured = var("CORS_ALLOWED_ORIGINS").unwrap_or_default();
+    let origins: Vec<HeaderValue> = configured
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse().ok())
+        .collect();
+
+    let mut cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE, header::HeaderName::from_static(API_KEY_HEADER)])
+        .allow_credentials(true);
+
+    cors = if origins.is_empty() {
+        // No origins configured: default to the local dev frontend ports only.
+        cors.allow_origin([
+            "http://localhost:3011".parse().unwrap(),
+            "http://localhost:5173".parse().unwrap(),
+        ])
+    } else {
+        cors.allow_origin(origins)
+    };
+
+    cors
+}
+
 pub async fn serve(qdrant: Qdrant, pg_pool: PgPool) -> Result<(), AppError> {
     let state = AppState {
         qdrant: Arc::from(qdrant),
         pg_pool,
     };
 
-    let origins = [
-        "http://localhost:3011".parse().unwrap(),
-        "http://localhost:5173".parse().unwrap(),
-        "http://rnimu-2003-d2-6f0f-5d7f-2cdc-89a-6491-94ff.a.free.pinggy.link"
-            .parse()
-            .unwrap(),
-    ];
-
-    let cors = CorsLayer::new()
-        // Allow requests from your frontend origin
-        .allow_origin(origins)
-        .allow_methods([Method::POST])
-        // Allow the Content-Type header for multipart form data
-        .allow_headers([header::CONTENT_TYPE])
-        .allow_credentials(true);
-
-    let app = Router::new()
-        .route("/", get(root))
+    let protected = Router::new()
         .route("/search/images", post(search_similar_images))
         .route("/search/tags", post(search_by_text_tags))
         .route("/meta", get(get_metadata))
         .route("/upload", post(upload_image))
+        .route_layer(middleware::from_fn(require_api_key));
+
+    let app = Router::new()
+        .route("/", get(root))
+        .merge(protected)
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(cors);
+        .layer(build_cors_layer());
 
     println!("app: {app:?}");
 

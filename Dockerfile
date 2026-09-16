@@ -1,5 +1,5 @@
 # Step 1: Base image for cargo-chef and Rust toolchain
-FROM lukemathwalker/cargo-chef:latest-rust-1.90.0 AS chef
+FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.90.0 AS chef
 WORKDIR /app
 
 
@@ -44,9 +44,11 @@ COPY --from=planner /app/recipe.json recipe.json
 # Use release mode with optimizations
 RUN cargo chef cook --release --recipe-path recipe.json
 
-
-
-ENV DATABASE_URL="postgresql://nm_owner:SLf4nwQEsPc1@ep-wandering-scene-a25ox7k0.eu-central-1.aws.neon.tech/nm?sslmode=require"
+# sqlx's macros need a reachable DATABASE_URL at *compile* time to verify queries.
+# Pass it with `--build-arg DATABASE_URL=...` (e.g. from a CI secret) - it is never
+# baked into an image layer or committed to source. Consider switching to
+# `cargo sqlx prepare` (offline mode) so builds don't need DB access at all.
+ARG DATABASE_URL
 
 # Copy source code
 COPY . .
@@ -54,13 +56,12 @@ COPY . .
 # Build with libtorch and all optimizations
 #  RUSTC_WRAPPER=sccache \ # Uncomment if sccache is installed
 RUN LIBTORCH=$LIBTORCH \
-     DATABASE_URL=$DATABASE_URL \
+    DATABASE_URL=$DATABASE_URL \
     LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
-    cargo build --bin viz-rs
-#--release
+    cargo build --release --bin viz-rs
 
 # Step 4: Runtime container with only what's needed to run (unchanged)
-FROM debian:bookworm-slim AS runtime
+FROM docker.io/library/debian:bookworm-slim AS runtime
 
 # Install runtime dependencies
 RUN apt-get update
@@ -80,8 +81,7 @@ COPY --from=builder /opt/libtorch /opt/libtorch
 ENV LD_LIBRARY_PATH=/opt/libtorch/lib
 
 # Copy binary
-COPY --from=builder /app/target/debug/viz-rs /usr/local/bin
-# change to  "release"
+COPY --from=builder /app/target/release/viz-rs /usr/local/bin
 
 # Expose the port
 EXPOSE 3000
