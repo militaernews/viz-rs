@@ -49,15 +49,21 @@ impl IntoResponse for AppError {
     }
 }
 
-// Manual From implementations for errors that should map to Unknown
+// Manual From implementations for errors that should map to Unknown. The API
+// response only ever says "Internal server error" (by design, to avoid
+// leaking internals to callers) but that previously meant the real cause was
+// discarded entirely, including server-side in logs - making failures like
+// "every backfilled image fails to extract features" undiagnosable. Log it.
 impl From<tch::TchError> for AppError {
-    fn from(_err: tch::TchError) -> Self {
+    fn from(err: tch::TchError) -> Self {
+        log::error!("tch error: {err}");
         AppError::Unknown
     }
 }
 
 impl From<anyhow::Error> for AppError {
-    fn from(_err: anyhow::Error) -> Self {
+    fn from(err: anyhow::Error) -> Self {
+        log::error!("error: {err:?}");
         AppError::Unknown
     }
 }
