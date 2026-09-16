@@ -287,17 +287,26 @@ async fn extract_from_point(
 
     debug!("Extracting data for chat_id: {}", chat_id);
 
+    // A backfilled/watched chat (e.g. via `viz-rs backfill`/`watch`) has no
+    // reason to already be registered in ptb-nn's `sources` table - that's
+    // populated by a separate bot. fetch_optional + fallbacks means one
+    // unregistered channel_id doesn't 500 the whole search result set.
     let row = query!(
         r#"SELECT s.username, s.bias, s.channel_name, s.display_name, s.invite
            FROM sources as s WHERE s.channel_id = $1"#,
         chat_id
     )
-        .fetch_one(pg_pool)
+        .fetch_optional(pg_pool)
         .await
         .map_err(|e| {
             error!("Query failed for chat_id {}: {:?}", chat_id, e);
             TelegramDatabaseError(e)
         })?;
+
+    let (display_name, bias, user_name, invite_hash) = match row {
+        Some(row) => (row.display_name.unwrap_or(row.channel_name), row.bias, row.username, row.invite),
+        None => (chat_id.to_string(), None, None, None),
+    };
 
     Ok(SearchResult {
         msg_id: point
@@ -312,10 +321,10 @@ async fn extract_from_point(
             .and_then(get_date_value)
             .unwrap_or_default(),
         similarity: point.score,
-        display_name: row.display_name.unwrap_or(row.channel_name),
-        bias: row.bias,
-        user_name: row.username,
-        invite_hash: row.invite,
+        display_name,
+        bias,
+        user_name,
+        invite_hash,
         tags: vec!["test".to_string(), "tree".to_string()],
         img: point
             .payload
