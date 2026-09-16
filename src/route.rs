@@ -242,6 +242,7 @@ pub async fn serve(qdrant: Qdrant, pg_pool: PgPool) -> Result<(), AppError> {
         .route("/search/tags", post(search_by_text_tags))
         .route("/meta", get(get_metadata))
         .route("/upload", post(upload_image))
+        .route("/collection", post(create_new_collection))
         .route_layer(middleware::from_fn(require_api_key));
 
     let app = Router::new()

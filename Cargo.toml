@@ -39,7 +39,9 @@ qdrant-client = "1.19.0"
 log = "0.4.34"
 simple_logger = "5.2.0"
 
-grammers-client = { git = "https://github.com/Lonami/grammers.git", rev = "19b81d1" }
+grammers-client = { git = "https://codeberg.org/Lonami/grammers.git" }
+grammers-mtsender = { git = "https://codeberg.org/Lonami/grammers.git" }
+grammers-session = { git = "https://codeberg.org/Lonami/grammers.git", features = ["sqlite-storage"] }
 sqlx = { version = "0.8.6", features = [
     "postgres",
     "runtime-tokio",

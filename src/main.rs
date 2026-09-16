@@ -60,8 +60,29 @@ async fn main() -> Result<(), AppError> {
 
     info!("Connected to Qdrant at: {}", qdrant.config.uri);
 
-    // Uncomment to set up collections
-    // set_up(&qdrant).await?;
+    // `viz-rs backfill <chat> <collection>` walks a chat's existing history
+    // once; `viz-rs watch <chat> <collection>` ingests new posts as they
+    // arrive and never returns. Both need a one-time interactive Telegram
+    // login on first run (see telegram.rs's TG_CODE_FILE for doing that
+    // without a TTY). Anything else (the default) just runs the web server.
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("backfill") => {
+            let chat = args.get(2).expect("usage: viz-rs backfill <chat> <collection>");
+            let collection = args.get(3).expect("usage: viz-rs backfill <chat> <collection>");
+            return crate::telegram::backfill_chat(qdrant, chat, collection)
+                .await
+                .map_err(|_| AppError::Unknown);
+        }
+        Some("watch") => {
+            let chat = args.get(2).expect("usage: viz-rs watch <chat> <collection>");
+            let collection = args.get(3).expect("usage: viz-rs watch <chat> <collection>");
+            return crate::telegram::watch_new_posts(qdrant, chat, collection)
+                .await
+                .map_err(|_| AppError::Unknown);
+        }
+        _ => {}
+    }
 
     let database_url = var("DATABASE_URL")
         .map_err(|e| anyhow!("Failed to get DATABASE_URL: {}", e))?;
@@ -75,13 +96,6 @@ async fn main() -> Result<(), AppError> {
         .map_err(|e| anyhow!("DB connection failed: {}", e))?;
 
     info!("Successfully connected to PostgreSQL");
-
-    // Uncomment to backfill nn_backup's existing history
-    // extract_from_chat(qdrant).await?;
-
-    // Uncomment to watch NYX_Memes for new posts as they arrive (long-running;
-    // first run needs an interactive terminal to enter the Telegram login code)
-    // crate::telegram::watch_new_posts(qdrant, "NYX_Memes", "memes").await?;
 
     info!("Starting web server");
     serve(qdrant, pg_pool).await.map_err(|e| {

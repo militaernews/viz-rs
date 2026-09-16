@@ -60,8 +60,11 @@ RUN LIBTORCH=$LIBTORCH \
     LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
     cargo build --release --bin viz-rs
 
-# Step 4: Runtime container with only what's needed to run (unchanged)
-FROM docker.io/library/debian:bookworm-slim AS runtime
+# Step 4: Runtime container with only what's needed to run.
+# Must match the builder's glibc/libstdc++ version (cargo-chef's rust image
+# tracks a newer Debian release than bookworm) or the binary fails to start
+# with "version `GLIBC_2.38' not found".
+FROM docker.io/library/debian:trixie-slim AS runtime
 
 # Install runtime dependencies
 RUN apt-get update
