@@ -71,7 +71,8 @@ async fn process_chat_images(
 
     let peer_ref = peer
         .to_ref()
-        .await?
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to resolve peer reference: {e}"))?
         .unwrap_or_else(|| panic!("no access to {chat_name}"));
 
     fs::create_dir_all(format!("frontend/static/img/{chat_id}/"))?;
@@ -235,6 +236,15 @@ fn prompt(message: &str) -> Result<String> {
 /// Connects (or resumes a saved session) and runs the interactive login-code
 /// flow if needed. On first run this blocks on stdin waiting for the code
 /// Telegram sends to PHONE - run this from a real terminal, not headlessly.
+///
+/// If PHONE never receives a code (app or SMS) no matter how long you wait,
+/// this is very likely because the login is being attempted from this
+/// server's IP rather than a residential one - Telegram's `auth.sendCode`
+/// often reports success but silently withholds delivery for datacenter/VPS
+/// IPs. Don't debug this as a grammers/code bug. Instead, authenticate once
+/// from a normal residential connection using the standalone `tg-login-helper`
+/// crate (sibling project, no libtorch dependency) and copy the resulting
+/// session file into this server's `tg-data/` volume - see its README.
 ///
 /// Returns the connected `Client` plus the raw updates channel from the
 /// `SenderPool` - only `watch_new_posts` needs it (to build an `UpdateStream`),

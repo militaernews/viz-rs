@@ -86,6 +86,11 @@ ENV LD_LIBRARY_PATH=/opt/libtorch/lib
 # Copy binary
 COPY --from=builder /app/target/release/viz-rs /usr/local/bin
 
+# RESNET_WEIGHTS_PATH (embedding.rs) defaults to /app/weights/resnet34.ot - mount
+# the weights file there at runtime (see the Quadlet's Volume=), it's 87MB and
+# updated independently of the image so it isn't baked in via COPY.
+WORKDIR /app
+
 # Expose the port
 EXPOSE 3000
 

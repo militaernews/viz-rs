@@ -1,9 +1,18 @@
 use crate::error::AppError;
+use std::env::var;
 use tch::nn::{ModuleT, VarStore};
 use tch::vision::imagenet;
 use tch::vision::resnet::resnet34;
 use tch::{Device, Kind};
 
+/// The runtime container never sets a fixed working directory, so a relative
+/// path here (the old "./weights/resnet34.ot") silently resolved to nowhere
+/// depending on how the container happened to be invoked - it worked by
+/// accident or not at all. RESNET_WEIGHTS_PATH makes the location explicit
+/// and independent of cwd; see the Quadlet/Dockerfile for where it's mounted.
+fn weights_path() -> String {
+    var("RESNET_WEIGHTS_PATH").unwrap_or_else(|_| "/app/weights/resnet34.ot".to_string())
+}
 
 pub fn extract_features(img: &[u8]) -> anyhow::Result<Vec<f32>, AppError> {
     let image = imagenet::load_image_and_resize_from_memory(img, 224, 224)?;
@@ -14,7 +23,7 @@ pub fn extract_features(img: &[u8]) -> anyhow::Result<Vec<f32>, AppError> {
 
     // Then the model is built on this variable store, and the weights are loaded.
     let resnet18 = resnet34(&vs.root(), imagenet::CLASS_COUNT); //todo increase classes
-    vs.load("./weights/resnet34.ot")?;
+    vs.load(weights_path())?;
 
 
     let output = resnet18
