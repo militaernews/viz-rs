@@ -285,6 +285,12 @@ async fn extract_from_point(
         .and_then(get_int64_value)
         .unwrap_or(0);
 
+    let msg_id = point
+        .payload
+        .get("msg_id")
+        .and_then(get_int_value)
+        .unwrap_or(0);
+
     debug!("Extracting data for chat_id: {}", chat_id);
 
     // A backfilled/watched chat (e.g. via `viz-rs backfill`/`watch`) has no
@@ -308,12 +314,24 @@ async fn extract_from_point(
         None => (chat_id.to_string(), None, None, None),
     };
 
+    // tg-nn forwards every source post into the nn_backup channel and records
+    // the mapping in `posts` (owned by tg-nn, same Postgres instance as
+    // `sources`) - not every post has a backup yet, so this is optional.
+    let backup_msg_id = query!(
+        r#"SELECT backup_id FROM posts WHERE source_channel_id = $1 AND source_message_id = $2"#,
+        chat_id,
+        msg_id
+    )
+        .fetch_optional(pg_pool)
+        .await
+        .map_err(|e| {
+            error!("Backup lookup failed for chat_id {} msg_id {}: {:?}", chat_id, msg_id, e);
+            TelegramDatabaseError(e)
+        })?
+        .map(|row| row.backup_id);
+
     Ok(SearchResult {
-        msg_id: point
-            .payload
-            .get("msg_id")
-            .and_then(get_int_value)
-            .unwrap_or(0),
+        msg_id,
         chat_id,
         posted_at: point
             .payload
@@ -325,6 +343,7 @@ async fn extract_from_point(
         bias,
         user_name,
         invite_hash,
+        backup_msg_id,
         tags: vec!["test".to_string(), "tree".to_string()],
         img: point
             .payload

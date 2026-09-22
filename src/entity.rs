@@ -30,6 +30,10 @@ pub struct SearchResult {
     pub invite_hash: Option<String>,
     pub tags: Vec<String>,
     pub img: String,
+    /// The message id of this post's copy in the nn_backup channel, if
+    /// tg-nn has forwarded and recorded one (see its `posts` table) - not
+    /// every post has one, e.g. if it predates tg-nn watching that source.
+    pub backup_msg_id: Option<i32>,
 }
 
 #[derive(Serialize)]
