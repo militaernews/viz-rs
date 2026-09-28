@@ -1,34 +1,64 @@
+# Local dev infrastructure: `podman compose up -d` (or `docker compose up -d`).
+# Credentials here are for local use only.
 services:
-  db:
-    image: qdrant/qdrant:latest
-    restart: always
-    container_name: qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    expose:
-      - 6333
-      - 6334
-      - 6335
-    configs:
-      - source: qdrant_config
-        target: ./qdrant/config/production.yaml
-    volumes:
-      - ./qdrant_data:/qdrant/storage
-    networks:
-      - shared-net
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
     environment:
-      - check_compatibility=false
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: tgsearch
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d tgsearch"]
+      interval: 5s
+      retries: 10
 
+  qdrant:
+    image: docker.io/qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333" # REST + dashboard
+      - "6334:6334" # gRPC, used by the Rust client
+    volumes:
+      - qdrant_data:/qdrant/storage
 
+  # S3-compatible thumbnail storage (MinIO no longer publishes images).
+  rustfs:
+    image: docker.io/rustfs/rustfs:latest
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    volumes:
+      - rustfs_data:/data
 
+  # Creates the thumbnail bucket with anonymous read, so S3_PUBLIC_BASE_URL can point at it.
+  rustfs-init:
+    image: docker.io/amazon/aws-cli:latest
+    depends_on:
+      - rustfs
+    environment:
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        s3="aws --endpoint-url http://rustfs:9000 s3api"
+        until $$s3 list-buckets >/dev/null 2>&1; do sleep 1; done
+        $$s3 head-bucket --bucket thumbs 2>/dev/null || $$s3 create-bucket --bucket thumbs
+        $$s3 put-bucket-policy --bucket thumbs --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::thumbs/*"]}]}'
+        echo "bucket thumbs ready"
 
-configs:
-  qdrant_config:
-    content: |
-      log_level: INFO      
-
-networks:
-  shared-net:
-    driver: bridge
-
+volumes:
+  postgres_data:
+  qdrant_data:
+  rustfs_data:

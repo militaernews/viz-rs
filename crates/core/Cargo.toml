@@ -1,0 +1,27 @@
+[package]
+name = "viz-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "viz_core"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+image.workspace = true
+tempfile.workspace = true
+qdrant-client.workspace = true
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "tracing", "download-binaries", "tls-native", "copy-dylibs", "api-24"] }
+tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
+aws-config = "1.12.0"
+aws-sdk-s3 = "1.150.0"
+webp = "0.3.1"

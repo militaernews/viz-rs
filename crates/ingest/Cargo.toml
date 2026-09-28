@@ -1,0 +1,28 @@
+[package]
+name = "viz-ingest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ingest"
+path = "src/main.rs"
+
+[dependencies]
+viz-core.workspace = true
+tokio.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+dotenvy.workspace = true
+tempfile.workspace = true
+futures.workspace = true
+grammers-client = "0.10.0"
+grammers-session = { version = "0.10.0", features = ["sqlite-storage"] }
+toml = "1.1.6"
+# grammers-crypto 0.10.0 asks for ^2.0.0-rc0, but rc1 moved to num-bigint 0.5 and breaks its build.
+glass_pumpkin = "=2.0.0-rc0"

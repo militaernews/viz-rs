@@ -1,0 +1,28 @@
+[package]
+name = "viz-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "api"
+path = "src/main.rs"
+
+[dependencies]
+viz-core.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sqlx.workspace = true
+image.workspace = true
+dotenvy.workspace = true
+tempfile.workspace = true
+qdrant-client.workspace = true
+axum = { version = "0.8.9", features = ["multipart"] }
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["trace", "cors", "timeout", "compression-gzip"] }
+tower_governor = { version = "0.8.0", default-features = false, features = ["axum"] }
+uuid.workspace = true
