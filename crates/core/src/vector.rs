@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::point_id::PointIdOptions;
-use qdrant_client::qdrant::{CreateCollectionBuilder, Distance, PointStruct, QueryPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder};
+use qdrant_client::qdrant::{
+    CreateCollectionBuilder, Distance, PointStruct, QueryPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+};
 use uuid::Uuid;
 
 /// CLIP embeddings in Qdrant. Point ids are `media_items.embedding_id`, so results are
@@ -35,18 +37,13 @@ impl VectorIndex {
     pub async fn upsert(&self, embedding_id: Uuid, vector: Vec<f32>, dhash: i64) -> Result<()> {
         let payload = qdrant_client::Payload::from([("dhash", qdrant_client::qdrant::Value::from(dhash))]);
         let point = PointStruct::new(embedding_id.to_string(), vector, payload);
-        self.client
-            .upsert_points(UpsertPointsBuilder::new(&self.collection, vec![point]).wait(true))
-            .await?;
+        self.client.upsert_points(UpsertPointsBuilder::new(&self.collection, vec![point]).wait(true)).await?;
         Ok(())
     }
 
     /// Returns `(embedding_id, cosine similarity)`, best first.
     pub async fn search(&self, vector: Vec<f32>, limit: u64) -> Result<Vec<(Uuid, f32)>> {
-        let response = self
-            .client
-            .query(QueryPointsBuilder::new(&self.collection).query(vector).limit(limit))
-            .await?;
+        let response = self.client.query(QueryPointsBuilder::new(&self.collection).query(vector).limit(limit)).await?;
         Ok(response
             .result
             .into_iter()

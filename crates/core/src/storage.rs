@@ -5,6 +5,8 @@ use aws_sdk_s3::config::Credentials;
 use image::DynamicImage;
 use image::imageops::FilterType;
 
+use crate::config::{optional, required};
+
 const THUMB_MAX_EDGE: u32 = 400;
 const THUMB_WEBP_QUALITY: f32 = 75.0;
 
@@ -21,18 +23,24 @@ pub struct S3Settings {
     pub secret_key: String,
 }
 
+impl S3Settings {
+    pub fn from_env() -> Result<Self> {
+        Ok(Self {
+            endpoint: required("S3_ENDPOINT")?,
+            bucket: required("S3_BUCKET")?,
+            region: optional("S3_REGION").unwrap_or_else(|| "us-east-1".into()),
+            access_key: required("S3_ACCESS_KEY")?,
+            secret_key: required("S3_SECRET_KEY")?,
+        })
+    }
+}
+
 impl ThumbStore {
     pub async fn new(settings: &S3Settings) -> Result<Self> {
         let shared = aws_config::defaults(BehaviorVersion::latest())
             .endpoint_url(&settings.endpoint)
             .region(Region::new(settings.region.clone()))
-            .credentials_provider(Credentials::new(
-                &settings.access_key,
-                &settings.secret_key,
-                None,
-                None,
-                "viz-env",
-            ))
+            .credentials_provider(Credentials::new(&settings.access_key, &settings.secret_key, None, None, "viz-env"))
             .load()
             .await;
         // Path-style addressing works for MinIO, R2 and S3 alike.
@@ -50,8 +58,48 @@ impl ThumbStore {
             .cache_control("public, max-age=31536000, immutable")
             .send()
             .await
-            .map_err(|e| anyhow!("uploading {key} to bucket {}: {}", self.bucket, aws_sdk_s3::error::DisplayErrorContext(e)))?;
+            .map_err(|e| {
+                anyhow!("uploading {key} to bucket {}: {}", self.bucket, aws_sdk_s3::error::DisplayErrorContext(e))
+            })?;
         Ok(())
+    }
+
+    /// Creates the bucket if it's missing (private; see `API_SERVE_THUMBS` for serving it).
+    pub async fn ensure_bucket(&self) -> Result<()> {
+        if self.client.head_bucket().bucket(&self.bucket).send().await.is_ok() {
+            return Ok(());
+        }
+        match self.client.create_bucket().bucket(&self.bucket).send().await {
+            Ok(_) => {
+                tracing::info!(bucket = %self.bucket, "created thumbnail bucket");
+                Ok(())
+            }
+            Err(e) if e.as_service_error().is_some_and(|e| e.is_bucket_already_owned_by_you()) => Ok(()),
+            Err(e) => Err(anyhow!("creating bucket {}: {}", self.bucket, aws_sdk_s3::error::DisplayErrorContext(e))),
+        }
+    }
+
+    /// `None` if the object doesn't exist.
+    pub async fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let object = match self.client.get_object().bucket(&self.bucket).key(key).send().await {
+            Ok(object) => object,
+            Err(e) if e.as_service_error().is_some_and(|e| e.is_no_such_key()) => return Ok(None),
+            Err(e) => {
+                return Err(anyhow!(
+                    "fetching {key} from bucket {}: {}",
+                    self.bucket,
+                    aws_sdk_s3::error::DisplayErrorContext(e)
+                ));
+            }
+        };
+        let bytes = object.body.collect().await.map_err(|e| anyhow!("reading {key}: {e}"))?;
+        Ok(Some(bytes.into_bytes().to_vec()))
+    }
+
+    /// Whether `key` has the shape `key_for_hash` produces, so arbitrary keys never reach S3.
+    pub fn is_thumb_key(key: &str) -> bool {
+        key.strip_suffix(".webp")
+            .is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
     }
 
     /// Content-addressed, so re-uploading the same visual is idempotent.
@@ -93,6 +141,10 @@ mod tests {
     fn keys_and_urls() {
         assert_eq!(ThumbStore::key_for_hash(-1), "ffffffffffffffff.webp");
         assert_eq!(ThumbStore::key_for_hash(255), "00000000000000ff.webp");
+        assert!(ThumbStore::is_thumb_key("00000000000000ff.webp"));
+        assert!(!ThumbStore::is_thumb_key("00000000000000FF.webp"));
+        assert!(!ThumbStore::is_thumb_key("../../secret.webp"));
+        assert!(!ThumbStore::is_thumb_key("00000000000000ff.png"));
         assert_eq!(public_url("https://cdn.example/", "thumbs/a.webp"), "https://cdn.example/thumbs/a.webp");
     }
 }

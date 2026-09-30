@@ -46,13 +46,7 @@ impl Config {
             database_url: required("DATABASE_URL")?,
             qdrant_url: required("QDRANT_URL")?,
             qdrant_collection: required("QDRANT_COLLECTION")?,
-            s3: S3Settings {
-                endpoint: required("S3_ENDPOINT")?,
-                bucket: required("S3_BUCKET")?,
-                region: optional("S3_REGION").unwrap_or_else(|| "us-east-1".into()),
-                access_key: required("S3_ACCESS_KEY")?,
-                secret_key: required("S3_SECRET_KEY")?,
-            },
+            s3: S3Settings::from_env()?,
             clip_vision_model_path: required("CLIP_VISION_MODEL_PATH")?,
             ffmpeg_bin: optional("FFMPEG_BIN").unwrap_or_else(|| "ffmpeg".into()),
             frame_extract_timeout_secs: parsed_or("FRAME_EXTRACT_TIMEOUT_SECS", 60)?,
@@ -103,10 +97,7 @@ fn load_seed_file(path: &str) -> Result<Vec<ChannelSeed>> {
 
 pub fn normalize_username(name: &str) -> String {
     let name = name.trim();
-    let name = name
-        .strip_prefix("https://t.me/")
-        .or_else(|| name.strip_prefix("t.me/"))
-        .unwrap_or(name);
+    let name = name.strip_prefix("https://t.me/").or_else(|| name.strip_prefix("t.me/")).unwrap_or(name);
     name.trim_start_matches('@').trim_end_matches('/').to_ascii_lowercase()
 }
 
@@ -118,7 +109,8 @@ pub async fn sync_channels(client: &Client, pool: &PgPool, seed_file: Option<&st
     if let Some(path) = seed_file {
         for seed in load_seed_file(path)? {
             let username = seed.username.as_deref().map(normalize_username);
-            let Some(resolved) = telegram::resolve_channel(client, &dialogs, seed.id, username.as_deref()).await? else {
+            let Some(resolved) = telegram::resolve_channel(client, &dialogs, seed.id, username.as_deref()).await?
+            else {
                 tracing::warn!(?seed, "seed channel could not be resolved; skipping");
                 continue;
             };

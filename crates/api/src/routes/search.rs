@@ -59,9 +59,10 @@ pub async fn search_video(
     tokio::fs::write(&path, &bytes).await.map_err(ApiError::internal)?;
     drop(bytes);
 
-    let frames = ffmpeg::extract_scene_frames(&state.ffmpeg_bin, &path, state.frame_extract_timeout_secs, MAX_QUERY_FRAMES)
-        .await
-        .map_err(ApiError::from_media)?;
+    let frames =
+        ffmpeg::extract_scene_frames(&state.ffmpeg_bin, &path, state.frame_extract_timeout_secs, MAX_QUERY_FRAMES)
+            .await
+            .map_err(ApiError::from_media)?;
     let frames = tokio::task::spawn_blocking(move || {
         frames
             .into_iter()

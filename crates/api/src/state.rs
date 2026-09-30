@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use viz_core::embed::{ClipTextEmbedder, ClipVisionEmbedder};
 use viz_core::hash::BkTree;
+use viz_core::storage::ThumbStore;
 use viz_core::vector::VectorIndex;
 
 use crate::config::Config;
@@ -21,6 +22,7 @@ pub struct AppState {
     pub api_key: String,
     pub ffmpeg_bin: String,
     pub frame_extract_timeout_secs: u64,
+    pub thumbs: Option<ThumbStore>,
 }
 
 impl AppState {
@@ -30,16 +32,17 @@ impl AppState {
         let vectors = VectorIndex::connect(&cfg.qdrant_url, &cfg.qdrant_collection)?;
         let tree = build_hash_index(&pool).await?;
 
-        let (vision_path, text_path, tokenizer_path) = (
-            cfg.clip_vision_model_path.clone(),
-            cfg.clip_text_model_path.clone(),
-            cfg.clip_tokenizer_path.clone(),
-        );
+        let (vision_path, text_path, tokenizer_path) =
+            (cfg.clip_vision_model_path.clone(), cfg.clip_text_model_path.clone(), cfg.clip_tokenizer_path.clone());
         let (vision, text) = tokio::task::spawn_blocking(move || -> Result<_> {
             Ok((ClipVisionEmbedder::load(&vision_path)?, ClipTextEmbedder::load(&text_path, &tokenizer_path)?))
         })
         .await??;
         vectors.ensure_collection(vision.dim()).await?;
+        let thumbs = match &cfg.thumbs {
+            Some(settings) => Some(ThumbStore::new(settings).await?),
+            None => None,
+        };
 
         Ok(Self {
             pool,
@@ -51,6 +54,7 @@ impl AppState {
             api_key: cfg.api_key.clone(),
             ffmpeg_bin: cfg.ffmpeg_bin.clone(),
             frame_extract_timeout_secs: cfg.frame_extract_timeout_secs,
+            thumbs,
         })
     }
 }
@@ -81,7 +85,9 @@ pub fn spawn_hash_index_refresh(state: Arc<AppState>) {
                     *state.hash_index.write().await = tree;
                     tracing::info!(items = size, "hash index refreshed");
                 }
-                Err(e) => tracing::warn!(error = %format!("{e:#}"), "hash index refresh failed; keeping the old one"),
+                Err(e) => {
+                    tracing::warn!(error = %format!("{e:#}"), "hash index refresh failed; keeping the old one")
+                }
             }
         }
     });

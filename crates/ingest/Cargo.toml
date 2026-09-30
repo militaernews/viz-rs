@@ -21,6 +21,8 @@ uuid.workspace = true
 dotenvy.workspace = true
 tempfile.workspace = true
 futures.workspace = true
+base64 = "0.22.1"
+qdrant-client.workspace = true
 grammers-client = "0.10.0"
 grammers-session = { version = "0.10.0", features = ["sqlite-storage"] }
 toml = "1.1.6"

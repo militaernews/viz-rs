@@ -15,13 +15,18 @@ use viz_core::{db, ffmpeg, hash, media};
 
 use crate::telegram::{MediaClass, PendingMedia};
 
-pub struct PipelineCtx {
+/// The Telegram-independent half of ingest: turns image bytes into a searchable item.
+pub struct Indexer {
     pub pool: PgPool,
-    pub client: Client,
     pub vision: Arc<ClipVisionEmbedder>,
     pub vectors: VectorIndex,
     pub thumbs: ThumbStore,
     pub ocr: Ocr,
+}
+
+pub struct PipelineCtx {
+    pub indexer: Indexer,
+    pub client: Client,
     pub ffmpeg_bin: String,
     pub frame_timeout_secs: u64,
     pub max_media_bytes: usize,
@@ -53,14 +58,14 @@ pub async fn handle(ctx: &PipelineCtx, item: PendingMedia) {
             if indexed > 0 {
                 tracing::info!(channel_id, message_id, visuals = indexed, "indexed message");
             }
-            if let Err(e) = db::clear_failure(&ctx.pool, channel_id, message_id).await {
+            if let Err(e) = db::clear_failure(&ctx.indexer.pool, channel_id, message_id).await {
                 tracing::warn!(channel_id, message_id, error = %e, "clearing failure record failed");
             }
         }
         Err(e) => {
             let error = format!("{e:#}");
             tracing::error!(channel_id, message_id, %error, "processing media failed");
-            if let Err(e) = db::record_failure(&ctx.pool, channel_id, message_id, &error).await {
+            if let Err(e) = db::record_failure(&ctx.indexer.pool, channel_id, message_id, &error).await {
                 tracing::error!(channel_id, message_id, error = %e, "recording failure failed");
             }
         }
@@ -69,7 +74,7 @@ pub async fn handle(ctx: &PipelineCtx, item: PendingMedia) {
 
 /// Returns the number of visuals (photo or video frames) recorded for the message.
 pub async fn process_one(ctx: &PipelineCtx, item: PendingMedia) -> Result<usize> {
-    if db::sighting_exists(&ctx.pool, item.channel_id, item.message_id).await? {
+    if db::sighting_exists(&ctx.indexer.pool, item.channel_id, item.message_id).await? {
         return Ok(0);
     }
     if let Some(size) = media_size(&item.media).filter(|&size| size > ctx.max_media_bytes) {
@@ -82,22 +87,19 @@ pub async fn process_one(ctx: &PipelineCtx, item: PendingMedia) -> Result<usize>
     ctx.client.download_media(&item.media, &path).await.context("downloading media")?;
 
     let visuals: Vec<(Option<i64>, Vec<u8>)> = match item.class {
-        MediaClass::Video => ffmpeg::extract_scene_frames(
-            &ctx.ffmpeg_bin,
-            &path,
-            ctx.frame_timeout_secs,
-            ffmpeg::MAX_FRAMES_PER_VIDEO,
-        )
-        .await?
-        .into_iter()
-        .map(|(offset_ms, png)| (Some(offset_ms as i64), png))
-        .collect(),
+        MediaClass::Video => {
+            ffmpeg::extract_scene_frames(&ctx.ffmpeg_bin, &path, ctx.frame_timeout_secs, ffmpeg::MAX_FRAMES_PER_VIDEO)
+                .await?
+                .into_iter()
+                .map(|(offset_ms, png)| (Some(offset_ms as i64), png))
+                .collect()
+        }
         MediaClass::Photo => vec![(None, tokio::fs::read(&path).await?)],
     };
 
     let mut sightings = Vec::with_capacity(visuals.len());
     for (frame_offset_ms, bytes) in visuals {
-        let media_item_id = index_visual(ctx, &item, frame_offset_ms, bytes).await?;
+        let media_item_id = ctx.indexer.index_visual(item.caption.clone(), frame_offset_ms, bytes).await?;
         sightings.push(NewSighting {
             media_item_id,
             channel_id: item.channel_id,
@@ -107,61 +109,67 @@ pub async fn process_one(ctx: &PipelineCtx, item: PendingMedia) -> Result<usize>
             posted_at: item.posted_at,
         });
     }
-    db::insert_sightings(&ctx.pool, &sightings).await?;
+    db::insert_sightings(&ctx.indexer.pool, &sightings).await?;
     Ok(sightings.len())
 }
 
-/// Hash, dedup-check, embed, thumbnail and persist one photo or frame; returns its item id.
-async fn index_visual(ctx: &PipelineCtx, item: &PendingMedia, frame_offset_ms: Option<i64>, bytes: Vec<u8>) -> Result<i64> {
-    let (bytes, img, dhash) = tokio::task::spawn_blocking(move || -> Result<_> {
-        let img = media::decode_image(&bytes)?;
-        let dhash = hash::dhash(&img);
-        Ok((bytes, img, dhash))
-    })
-    .await??;
+impl Indexer {
+    /// Hash, dedup-check, embed, thumbnail and persist one photo or frame; returns its item id.
+    pub async fn index_visual(
+        &self,
+        caption: Option<String>,
+        frame_offset_ms: Option<i64>,
+        bytes: Vec<u8>,
+    ) -> Result<i64> {
+        let (bytes, img, dhash) = tokio::task::spawn_blocking(move || -> Result<_> {
+            let img = media::decode_image(&bytes)?;
+            let dhash = hash::dhash(&img);
+            Ok((bytes, img, dhash))
+        })
+        .await??;
 
-    if let Some(existing) = db::find_item_by_dhash(&ctx.pool, dhash, frame_offset_ms).await? {
-        return Ok(existing);
-    }
-
-    let vision = Arc::clone(&ctx.vision);
-    let (embedding, thumbnail) = tokio::task::spawn_blocking(move || -> Result<_> {
-        Ok((vision.embed(&img)?, encode_thumbnail(&img)?))
-    })
-    .await??;
-
-    let ocr_text = match ctx.ocr.recognize(&bytes).await {
-        Ok(text) => text,
-        Err(e) => {
-            tracing::debug!(error = %e, "OCR failed; continuing without text");
-            None
+        if let Some(existing) = db::find_item_by_dhash(&self.pool, dhash, frame_offset_ms).await? {
+            return Ok(existing);
         }
-    };
 
-    let new_item = NewMediaItem {
-        dhash,
-        embedding_id: Uuid::new_v4(),
-        thumb_key: ThumbStore::key_for_hash(dhash),
-        caption: item.caption.clone(),
-        ocr_text,
-        media_kind: if frame_offset_ms.is_some() { MediaKind::VideoFrame } else { MediaKind::Photo },
-        frame_offset_ms,
-    };
+        let vision = Arc::clone(&self.vision);
+        let (embedding, thumbnail) =
+            tokio::task::spawn_blocking(move || -> Result<_> { Ok((vision.embed(&img)?, encode_thumbnail(&img)?)) })
+                .await??;
 
-    // The row only becomes visible once the vector and thumbnail exist.
-    let mut tx = ctx.pool.begin().await?;
-    match db::insert_media_item(&mut tx, &new_item).await? {
-        Some(id) => {
-            ctx.vectors.upsert(new_item.embedding_id, embedding, dhash).await?;
-            ctx.thumbs.upload(&new_item.thumb_key, thumbnail).await?;
-            tx.commit().await?;
-            Ok(id)
-        }
-        None => {
-            tx.rollback().await?;
-            db::find_item_by_dhash(&ctx.pool, dhash, frame_offset_ms)
-                .await?
-                .context("media item disappeared after a dedup conflict")
+        let ocr_text = match self.ocr.recognize(&bytes).await {
+            Ok(text) => text,
+            Err(e) => {
+                tracing::debug!(error = %e, "OCR failed; continuing without text");
+                None
+            }
+        };
+
+        let new_item = NewMediaItem {
+            dhash,
+            embedding_id: Uuid::new_v4(),
+            thumb_key: ThumbStore::key_for_hash(dhash),
+            caption,
+            ocr_text,
+            media_kind: if frame_offset_ms.is_some() { MediaKind::VideoFrame } else { MediaKind::Photo },
+            frame_offset_ms,
+        };
+
+        // The row only becomes visible once the vector and thumbnail exist.
+        let mut tx = self.pool.begin().await?;
+        match db::insert_media_item(&mut tx, &new_item).await? {
+            Some(id) => {
+                self.vectors.upsert(new_item.embedding_id, embedding, dhash).await?;
+                self.thumbs.upload(&new_item.thumb_key, thumbnail).await?;
+                tx.commit().await?;
+                Ok(id)
+            }
+            None => {
+                tx.rollback().await?;
+                db::find_item_by_dhash(&self.pool, dhash, frame_offset_ms)
+                    .await?
+                    .context("media item disappeared after a dedup conflict")
+            }
         }
     }
 }

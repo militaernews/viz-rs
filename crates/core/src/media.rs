@@ -49,9 +49,7 @@ mod tests {
 
     fn png_bytes() -> Vec<u8> {
         let mut out = Vec::new();
-        DynamicImage::new_rgb8(4, 4)
-            .write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
-            .unwrap();
+        DynamicImage::new_rgb8(4, 4).write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
         out
     }
 

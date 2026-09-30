@@ -33,9 +33,7 @@ pub async fn connect(api_id: i32, session_path: &str) -> Result<Connection> {
         std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
     let session = Arc::new(
-        SqliteSession::open(session_path)
-            .await
-            .with_context(|| format!("opening Telegram session {session_path}"))?,
+        SqliteSession::open(session_path).await.with_context(|| format!("opening Telegram session {session_path}"))?,
     );
     let SenderPool { runner, updates, handle } = SenderPool::new(Arc::clone(&session), api_id);
     let client = Client::new(handle);
@@ -243,10 +241,8 @@ pub async fn event_loop(
         // Workers apply backpressure through `tx`; don't drop updates while they catch up.
         update_queue_limit: Some(10_000),
     };
-    let mut stream = client
-        .stream_updates(updates, config)
-        .await
-        .map_err(|e| anyhow!("starting update stream: {e}"))?;
+    let mut stream =
+        client.stream_updates(updates, config).await.map_err(|e| anyhow!("starting update stream: {e}"))?;
     let mut sync = tokio::time::interval(UPDATE_STATE_SYNC_INTERVAL);
     tracing::info!(channels = by_peer.len(), "watching for new posts");
 
@@ -302,19 +298,25 @@ pub async fn backfill(ctx: &PipelineCtx, channel: &Channel, concurrency: usize) 
         let mut batch = Vec::new();
         let mut last_id = None;
         for _ in 0..BACKFILL_BATCH {
-            let Some(msg) = messages.next().await? else { break };
+            let Some(msg) = messages.next().await? else {
+                break;
+            };
             last_id = Some(i64::from(msg.id()));
             batch.extend(PendingMedia::from_message(&msg, channel));
         }
         let Some(last_id) = last_id else { break };
 
         let media_count = batch.len();
-        futures::stream::iter(batch)
-            .for_each_concurrent(concurrency, |item| pipeline::handle(ctx, item))
-            .await;
-        viz_core::db::upsert_watched_channel_watermark(&ctx.pool, channel.channel_id, last_id).await?;
+        futures::stream::iter(batch).for_each_concurrent(concurrency, |item| pipeline::handle(ctx, item)).await;
+        viz_core::db::upsert_watched_channel_watermark(&ctx.indexer.pool, channel.channel_id, last_id).await?;
         scanned += BACKFILL_BATCH;
-        tracing::info!(channel_id = channel.channel_id, last_message_id = last_id, media_count, scanned, "backfill batch done");
+        tracing::info!(
+            channel_id = channel.channel_id,
+            last_message_id = last_id,
+            media_count,
+            scanned,
+            "backfill batch done"
+        );
     }
     tracing::info!(channel_id = channel.channel_id, "backfill complete");
     Ok(())

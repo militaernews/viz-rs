@@ -71,13 +71,11 @@ struct WatchedChannelRow {
 }
 
 pub async fn find_item_by_dhash(pool: &PgPool, dhash: i64, frame_offset_ms: Option<i64>) -> Result<Option<i64>> {
-    Ok(sqlx::query_scalar(
-        "select id from media_items where dhash = $1 and frame_offset_ms is not distinct from $2",
-    )
-    .bind(dhash)
-    .bind(frame_offset_ms)
-    .fetch_optional(pool)
-    .await?)
+    Ok(sqlx::query_scalar("select id from media_items where dhash = $1 and frame_offset_ms is not distinct from $2")
+        .bind(dhash)
+        .bind(frame_offset_ms)
+        .fetch_optional(pool)
+        .await?)
 }
 
 /// Returns the new id, or `None` if an item with the same `(dhash, frame_offset_ms)` already
@@ -125,13 +123,11 @@ pub async fn insert_sightings(pool: &PgPool, sightings: &[NewSighting]) -> Resul
 }
 
 pub async fn sighting_exists(pool: &PgPool, channel_id: i64, message_id: i64) -> Result<bool> {
-    Ok(sqlx::query_scalar(
-        "select exists(select 1 from media_sightings where channel_id = $1 and message_id = $2)",
-    )
-    .bind(channel_id)
-    .bind(message_id)
-    .fetch_one(pool)
-    .await?)
+    Ok(sqlx::query_scalar("select exists(select 1 from media_sightings where channel_id = $1 and message_id = $2)")
+        .bind(channel_id)
+        .bind(message_id)
+        .fetch_one(pool)
+        .await?)
 }
 
 /// Items with their sightings (oldest first), in the order of `item_ids`. Unknown ids are skipped.
@@ -186,10 +182,11 @@ pub async fn item_ids_by_embedding_ids(pool: &PgPool, embedding_ids: &[Uuid]) ->
     if embedding_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(Uuid, i64)> = sqlx::query_as("select embedding_id, id from media_items where embedding_id = any($1)")
-        .bind(embedding_ids)
-        .fetch_all(pool)
-        .await?;
+    let rows: Vec<(Uuid, i64)> =
+        sqlx::query_as("select embedding_id, id from media_items where embedding_id = any($1)")
+            .bind(embedding_ids)
+            .fetch_all(pool)
+            .await?;
     Ok(rows.into_iter().collect())
 }
 

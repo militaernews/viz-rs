@@ -1,5 +1,6 @@
 use anyhow::Result;
 use viz_core::config::{optional, parsed_or, required};
+use viz_core::storage::S3Settings;
 
 pub struct Config {
     pub bind_addr: String,
@@ -16,6 +17,9 @@ pub struct Config {
     pub clip_tokenizer_path: String,
     pub ffmpeg_bin: String,
     pub frame_extract_timeout_secs: u64,
+    /// Set when the API serves thumbnails itself at `/thumbs/{key}` (API_SERVE_THUMBS=true),
+    /// for buckets that aren't publicly reachable.
+    pub thumbs: Option<S3Settings>,
 }
 
 impl Config {
@@ -35,6 +39,7 @@ impl Config {
             clip_tokenizer_path: required("CLIP_TOKENIZER_PATH")?,
             ffmpeg_bin: optional("FFMPEG_BIN").unwrap_or_else(|| "ffmpeg".into()),
             frame_extract_timeout_secs: parsed_or("FRAME_EXTRACT_TIMEOUT_SECS", 60)?,
+            thumbs: if parsed_or("API_SERVE_THUMBS", false)? { Some(S3Settings::from_env()?) } else { None },
         })
     }
 }

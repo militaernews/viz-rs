@@ -1,5 +1,6 @@
 pub mod health;
 pub mod search;
+pub mod thumbs;
 
 use axum::extract::Multipart;
 use serde::Deserialize;

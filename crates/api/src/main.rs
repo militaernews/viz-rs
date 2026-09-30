@@ -4,12 +4,12 @@ mod routes;
 mod state;
 
 use anyhow::{Context, Result};
+use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,9 +42,8 @@ async fn main() -> Result<()> {
     state::spawn_hash_index_refresh(Arc::clone(&state));
 
     let app = router(Arc::clone(&state), &cfg)?;
-    let listener = tokio::net::TcpListener::bind(&cfg.bind_addr)
-        .await
-        .with_context(|| format!("binding {}", cfg.bind_addr))?;
+    let listener =
+        tokio::net::TcpListener::bind(&cfg.bind_addr).await.with_context(|| format!("binding {}", cfg.bind_addr))?;
     tracing::info!(addr = %cfg.bind_addr, "api listening");
     // Connect info is the rate limiter's fallback key when no proxy header is present.
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
@@ -96,6 +95,8 @@ fn router(state: Arc<AppState>, cfg: &Config) -> Result<Router> {
     Ok(Router::new()
         .merge(search)
         .route("/healthz", get(routes::health::healthz))
+        // Public like the bucket it stands in for; thumbnails are what search results link to.
+        .route("/thumbs/{key}", get(routes::thumbs::get_thumb))
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(StatusCode::GATEWAY_TIMEOUT, REQUEST_TIMEOUT))
         .layer(cors)

@@ -29,6 +29,7 @@ cargo run --release --bin ingest -- --login                 # once, needs TG_PHO
 cp channels.example.toml channels.toml                      # and set CHANNELS_FILE=./channels.toml
 cargo run --release --bin ingest -- --backfill @channel     # history, oldest first, resumable
 cargo run --release --bin ingest                            # watch all enabled channels
+cargo run --release --bin ingest -- --import-legacy memes    # one-off: old viz-rs Qdrant collection, no Telegram
 ```
 
 Log in from a residential connection: Telegram often silently withholds login codes for
@@ -48,6 +49,7 @@ POST /api/search/image   multipart field "file"  [?max_distance=8, max 16]
 POST /api/search/video   multipart field "file"  [?max_distance=8]
 POST /api/search/text    {"q": "..."}  (1-200 chars)
 GET  /healthz            {"status":"ok"}
+GET  /thumbs/{key}       thumbnail WebP, public; only with API_SERVE_THUMBS=true
 
 -> [SearchHit], at most 50, best first
 SearchHit = { thumb_url, score, origin: Link | null, backup: Link | null }
@@ -58,6 +60,10 @@ Image and video search return perceptual-hash matches (score = 1 - distance/64) 
 to CLIP similarity only when nothing matches by hash. Text search ranks caption/OCR full-text
 matches (score 1.0) above CLIP text-to-image matches. Errors are `{"error": "..."}` with 400,
 401, 413, 422, 429 or 500; internal details are only logged.
+
+Thumbnails live in the S3 bucket. If the bucket is public, point `S3_PUBLIC_BASE_URL` at it.
+Otherwise set `API_SERVE_THUMBS=true` (plus the `S3_*` credentials) and point
+`S3_PUBLIC_BASE_URL` at `<api>/thumbs`, so the API serves them itself.
 
 ## Container
 

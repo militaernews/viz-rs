@@ -18,9 +18,7 @@ where
     T::Err: std::fmt::Display,
 {
     let raw = required(name)?;
-    raw.trim()
-        .parse()
-        .map_err(|e| anyhow::anyhow!("environment variable {name}={raw:?} is invalid: {e}"))
+    raw.trim().parse().map_err(|e| anyhow::anyhow!("environment variable {name}={raw:?} is invalid: {e}"))
 }
 
 pub fn parsed_or<T>(name: &str, default: T) -> Result<T>

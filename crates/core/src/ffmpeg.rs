@@ -35,9 +35,7 @@ pub async fn extract_scene_frames(
 
     let out_dir = tempfile::tempdir()?;
     // Frame 0 is always selected, otherwise a video without cuts would yield nothing.
-    let filter = format!(
-        "select='eq(n,0)+gt(scene,{SCENE_THRESHOLD})',scale='min({MAX_FRAME_WIDTH},iw)':-1,showinfo"
-    );
+    let filter = format!("select='eq(n,0)+gt(scene,{SCENE_THRESHOLD})',scale='min({MAX_FRAME_WIDTH},iw)':-1,showinfo");
     let output = Command::new(ffmpeg_bin)
         .arg("-nostdin")
         .arg("-hide_banner")

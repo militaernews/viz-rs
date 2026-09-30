@@ -1,4 +1,5 @@
 mod config;
+mod legacy;
 mod pipeline;
 mod telegram;
 
@@ -12,18 +13,20 @@ use viz_core::storage::ThumbStore;
 use viz_core::vector::VectorIndex;
 
 use crate::config::{Config, TelegramConfig, normalize_username};
-use crate::pipeline::PipelineCtx;
+use crate::pipeline::{Indexer, PipelineCtx};
 
 const QUEUE_CAPACITY: usize = 256;
 
 const USAGE: &str = "usage: ingest              watch all enabled channels for new posts
        ingest --login      interactive one-time Telegram login (needs TG_PHONE)
-       ingest --backfill <username|channel_id>";
+       ingest --backfill <username|channel_id>
+       ingest --import-legacy <collection>   re-index the old viz-rs Qdrant collection (no Telegram)";
 
 enum Mode {
     Live,
     Login,
     Backfill(String),
+    ImportLegacy(String),
 }
 
 fn parse_args() -> Result<Mode> {
@@ -32,6 +35,7 @@ fn parse_args() -> Result<Mode> {
         [] => Ok(Mode::Live),
         ["--login"] => Ok(Mode::Login),
         ["--backfill", channel] => Ok(Mode::Backfill(channel.to_string())),
+        ["--import-legacy", collection] => Ok(Mode::ImportLegacy(collection.to_string())),
         _ => bail!("{USAGE}"),
     }
 }
@@ -45,6 +49,13 @@ async fn main() -> Result<()> {
         .init();
 
     let mode = parse_args()?;
+    if let Mode::ImportLegacy(collection) = &mode {
+        let cfg = Config::from_env()?;
+        let pool = viz_core::db::connect(&cfg.database_url, 4).await?;
+        let indexer = build_indexer(&cfg, pool).await?;
+        return legacy::import(&indexer, &cfg.qdrant_url, collection).await;
+    }
+
     let tg = TelegramConfig::from_env()?;
     let telegram::Connection { client, updates } = telegram::connect(tg.api_id, &tg.session_path).await?;
 
@@ -64,22 +75,9 @@ async fn main() -> Result<()> {
         bail!("no enabled channels resolved; add some via CHANNELS_FILE (see channels.example.toml)");
     }
 
-    let model_path = cfg.clip_vision_model_path.clone();
-    let vision = Arc::new(tokio::task::spawn_blocking(move || ClipVisionEmbedder::load(&model_path)).await??);
-    let vectors = VectorIndex::connect(&cfg.qdrant_url, &cfg.qdrant_collection)?;
-    vectors.ensure_collection(vision.dim()).await?;
-    let ocr = Ocr::new(cfg.tesseract_bin.clone(), cfg.tesseract_langs.clone());
-    if !ocr.is_enabled() {
-        tracing::info!("TESSERACT_BIN not set, OCR disabled");
-    }
-
     let ctx = Arc::new(PipelineCtx {
-        pool,
+        indexer: build_indexer(&cfg, pool).await?,
         client: client.clone(),
-        vision,
-        vectors,
-        thumbs: ThumbStore::new(&cfg.s3).await?,
-        ocr,
         ffmpeg_bin: cfg.ffmpeg_bin.clone(),
         frame_timeout_secs: cfg.frame_extract_timeout_secs,
         max_media_bytes: cfg.max_media_bytes,
@@ -92,7 +90,9 @@ async fn main() -> Result<()> {
             let channel = channels
                 .iter()
                 .find(|c| Some(c.channel_id) == wanted_id || c.username.as_deref() == Some(wanted_name.as_str()))
-                .with_context(|| format!("{target} is not an enabled watched channel (add it to CHANNELS_FILE first)"))?;
+                .with_context(|| {
+                    format!("{target} is not an enabled watched channel (add it to CHANNELS_FILE first)")
+                })?;
             telegram::backfill(&ctx, channel, cfg.workers).await
         }
         Mode::Live => {
@@ -106,6 +106,20 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Mode::Login => unreachable!("handled above"),
+        Mode::Login | Mode::ImportLegacy(_) => unreachable!("handled above"),
     }
+}
+
+async fn build_indexer(cfg: &Config, pool: sqlx::PgPool) -> Result<Indexer> {
+    let model_path = cfg.clip_vision_model_path.clone();
+    let vision = Arc::new(tokio::task::spawn_blocking(move || ClipVisionEmbedder::load(&model_path)).await??);
+    let vectors = VectorIndex::connect(&cfg.qdrant_url, &cfg.qdrant_collection)?;
+    vectors.ensure_collection(vision.dim()).await?;
+    let ocr = Ocr::new(cfg.tesseract_bin.clone(), cfg.tesseract_langs.clone());
+    if !ocr.is_enabled() {
+        tracing::info!("TESSERACT_BIN not set, OCR disabled");
+    }
+    let thumbs = ThumbStore::new(&cfg.s3).await?;
+    thumbs.ensure_bucket().await?;
+    Ok(Indexer { pool, vision, vectors, thumbs, ocr })
 }

@@ -4,9 +4,7 @@ pub const DEFAULT_MAX_DISTANCE: u32 = 8;
 
 /// 64-bit difference hash. Robust to resize/recompress, not to crop/rotate.
 pub fn dhash(img: &DynamicImage) -> i64 {
-    let small = img
-        .resize_exact(9, 8, image::imageops::FilterType::Triangle)
-        .to_luma8();
+    let small = img.resize_exact(9, 8, image::imageops::FilterType::Triangle).to_luma8();
     let mut hash: i64 = 0;
     for y in 0..8u32 {
         for x in 0..8u32 {
@@ -96,10 +94,7 @@ impl BkTree {
             let lo = d.saturating_sub(max_distance);
             let hi = d + max_distance;
             stack.extend(
-                node.children
-                    .iter()
-                    .filter(|(child_dist, _)| (lo..=hi).contains(child_dist))
-                    .map(|&(_, child)| child),
+                node.children.iter().filter(|(child_dist, _)| (lo..=hi).contains(child_dist)).map(|&(_, child)| child),
             );
         }
         results

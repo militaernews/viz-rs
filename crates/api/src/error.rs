@@ -9,6 +9,7 @@ pub enum ApiError {
     BadImage,
     PayloadTooLarge,
     Unauthorized,
+    NotFound,
     RateLimited,
     /// The real error is logged server-side; the client only ever sees "internal error".
     Internal,
@@ -50,6 +51,7 @@ impl IntoResponse for ApiError {
             ApiError::BadImage => (StatusCode::UNPROCESSABLE_ENTITY, "could not decode media".into()),
             ApiError::PayloadTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "upload too large".into()),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".into()),
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "not found".into()),
             ApiError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "slow down".into()),
             ApiError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
         };

@@ -32,15 +32,15 @@ fn new_item(dhash: i64, caption: &str, frame_offset_ms: Option<i64>) -> NewMedia
 #[tokio::test]
 #[ignore]
 async fn postgres_round_trip() {
-    let pool = db::connect(&env_or("TEST_DATABASE_URL", "postgres://user:pass@localhost:5432/tgsearch"), 4)
-        .await
-        .unwrap();
+    let pool =
+        db::connect(&env_or("TEST_DATABASE_URL", "postgres://user:pass@localhost:5432/tgsearch"), 4).await.unwrap();
     let dhash = random_i64();
     let word = format!("marker{}", random_i64());
 
     // Photos (null offset) dedup against each other thanks to NULLS NOT DISTINCT.
     let mut conn = pool.acquire().await.unwrap();
-    let photo = db::insert_media_item(&mut conn, &new_item(dhash, &format!("{word} photo"), None)).await.unwrap().unwrap();
+    let photo =
+        db::insert_media_item(&mut conn, &new_item(dhash, &format!("{word} photo"), None)).await.unwrap().unwrap();
     assert_eq!(db::insert_media_item(&mut conn, &new_item(dhash, "dup", None)).await.unwrap(), None);
     let frame = db::insert_media_item(&mut conn, &new_item(dhash, "frame", Some(1500))).await.unwrap().unwrap();
     drop(conn);
@@ -86,7 +86,8 @@ async fn postgres_round_trip() {
     db::upsert_watched_channel_watermark(&pool, origin_channel, 100).await.unwrap();
     db::upsert_watched_channel_watermark(&pool, origin_channel, 50).await.unwrap();
     db::upsert_watched_channel(&pool, &WatchedChannel { enabled: false, ..watched.clone() }).await.unwrap();
-    let stored = db::fetch_watched_channels(&pool).await.unwrap().into_iter().find(|c| c.channel_id == origin_channel).unwrap();
+    let stored =
+        db::fetch_watched_channels(&pool).await.unwrap().into_iter().find(|c| c.channel_id == origin_channel).unwrap();
     assert_eq!(stored, WatchedChannel { enabled: false, last_message_id: 100, ..watched });
 
     db::record_failure(&pool, origin_channel, 7, "first").await.unwrap();
@@ -104,8 +105,9 @@ async fn postgres_round_trip() {
 #[tokio::test]
 #[ignore]
 async fn qdrant_round_trip() {
-    let index = VectorIndex::connect(&env_or("TEST_QDRANT_URL", "http://localhost:6334"), &format!("test_{}", random_i64()))
-        .unwrap();
+    let index =
+        VectorIndex::connect(&env_or("TEST_QDRANT_URL", "http://localhost:6334"), &format!("test_{}", random_i64()))
+            .unwrap();
     index.ensure_collection(4).await.unwrap();
     index.ensure_collection(4).await.unwrap();
     let (near, far) = (Uuid::new_v4(), Uuid::new_v4());
