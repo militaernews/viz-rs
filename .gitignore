@@ -21,3 +21,4 @@
 /data
 channels.toml
 /NUL
+rustfs.env
