@@ -56,7 +56,7 @@ impl ThumbStore {
 
     /// Content-addressed, so re-uploading the same visual is idempotent.
     pub fn key_for_hash(dhash: i64) -> String {
-        format!("thumbs/{:016x}.webp", dhash as u64)
+        format!("{:016x}.webp", dhash as u64)
     }
 }
 
@@ -91,8 +91,8 @@ mod tests {
 
     #[test]
     fn keys_and_urls() {
-        assert_eq!(ThumbStore::key_for_hash(-1), "thumbs/ffffffffffffffff.webp");
-        assert_eq!(ThumbStore::key_for_hash(255), "thumbs/00000000000000ff.webp");
+        assert_eq!(ThumbStore::key_for_hash(-1), "ffffffffffffffff.webp");
+        assert_eq!(ThumbStore::key_for_hash(255), "00000000000000ff.webp");
         assert_eq!(public_url("https://cdn.example/", "thumbs/a.webp"), "https://cdn.example/thumbs/a.webp");
     }
 }

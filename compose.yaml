@@ -58,6 +58,49 @@ services:
         $$s3 put-bucket-policy --bucket thumbs --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::thumbs/*"]}]}'
         echo "bucket thumbs ready"
 
+  # The app itself (image includes ffmpeg and tesseract): `podman compose --profile app up -d`.
+  # Reads secrets from .env; the hostnames below override the localhost defaults there.
+  api:
+    profiles: [app]
+    build: .
+    image: localhost/viz-rs:dev
+    restart: unless-stopped
+    env_file: .env
+    environment: &app-env
+      DATABASE_URL: postgres://user:pass@postgres:5432/tgsearch
+      QDRANT_URL: http://qdrant:6334
+      S3_ENDPOINT: http://rustfs:9000
+      CLIP_VISION_MODEL_PATH: /app/models/clip-vision.onnx
+      CLIP_TEXT_MODEL_PATH: /app/models/clip-text.onnx
+      CLIP_TOKENIZER_PATH: /app/models/clip-tokenizer.json
+      FFMPEG_BIN: ffmpeg
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/app/models:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ingest:
+    profiles: [app]
+    image: localhost/viz-rs:dev
+    restart: unless-stopped
+    command: ["/usr/local/bin/ingest"]
+    env_file: .env
+    environment:
+      <<: *app-env
+      TG_SESSION_PATH: /app/data/ingest.session
+      CHANNELS_FILE: /app/channels.toml
+      TESSERACT_BIN: tesseract
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+      - ./channels.toml:/app/channels.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   qdrant_data:

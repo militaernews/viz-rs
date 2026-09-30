@@ -1,0 +1,18 @@
+# Channel seed file for `ingest` (copy to channels.toml and set CHANNELS_FILE).
+# Every entry is upserted into `watched_channels` on start; the backfill watermark is kept.
+# Each entry needs `username` or `id` (Bot API style, -100...). Private channels without a
+# username need the id and the account must be a member.
+
+[[channels]]
+username = "@example_origin"
+
+[[channels]]
+username = "@example_backup"
+# Results show this channel's post as the `backup` link instead of `origin`.
+is_backup = true
+
+[[channels]]
+id = -1001234567890
+is_private = true
+# Keep the row but stop watching it.
+enabled = false

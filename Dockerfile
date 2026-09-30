@@ -1,98 +1,45 @@
-# Step 1: Base image for cargo-chef and Rust toolchain
-FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.90.0 AS chef
-WORKDIR /app
+# One image with both binaries: `api` (default) and `ingest`.
+# Models are not baked in; mount them at /app/models (see README).
+FROM docker.io/library/rust:1-slim-trixie AS builder
 
-
-
-
-# Step 2: Plan build using cargo-chef (unchanged)
-FROM chef AS planner
-COPY . .
-
-RUN cargo chef prepare --recipe-path recipe.json
-
-# Step 3: Install dependencies, libtorch, and build app
-FROM chef AS builder
-
-# Install system dependencies more efficiently
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl unzip cmake pkg-config libssl-dev \
-    clang lld \
-    && apt-get clean \
+        pkg-config libssl-dev cmake clang ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-
-
-
-# Cache libtorch in a separate layer
-ENV LIBTORCH_VERSION=2.7.0
-ENV LIBTORCH_DOWNLOAD_URL=https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip
-
-# Download and extract libtorch in a separate layer for better caching
-RUN curl -L "${LIBTORCH_DOWNLOAD_URL}" -o libtorch.zip \
-    && unzip libtorch.zip -d /opt \
-    && rm libtorch.zip
-
-# Set LIBTORCH environment variables for build
-ENV LIBTORCH=/opt/libtorch
-ENV LD_LIBRARY_PATH=/opt/libtorch/lib
-
 WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY migrations migrations
 
-# Copy recipe and cook dependencies
-COPY --from=planner /app/recipe.json recipe.json
-# Use release mode with optimizations
-RUN cargo chef cook --release --recipe-path recipe.json
+# Cache mounts keep the registry and target dir between builds without putting them in a layer.
+# ort's download-binaries fetches ONNX Runtime at build time.
+RUN --mount=type=cache,id=viz-rs-cargo-registry,sharing=locked,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=viz-rs-target,sharing=locked,target=/app/target \
+    cargo build --release --locked --bin api --bin ingest \
+    && mkdir -p /out \
+    && cp target/release/api target/release/ingest /out/ \
+    && (cp target/release/libonnxruntime*.so* /out/ 2>/dev/null || true)
 
-# sqlx's macros need a reachable DATABASE_URL at *compile* time to verify queries.
-# Pass it with `--build-arg DATABASE_URL=...` (e.g. from a CI secret) - it is never
-# baked into an image layer or committed to source. Consider switching to
-# `cargo sqlx prepare` (offline mode) so builds don't need DB access at all.
-ARG DATABASE_URL
-
-# Copy source code
-COPY . .
-
-# Build with libtorch and all optimizations
-#  RUSTC_WRAPPER=sccache \ # Uncomment if sccache is installed
-RUN LIBTORCH=$LIBTORCH \
-    DATABASE_URL=$DATABASE_URL \
-    LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
-    cargo build --release --bin viz-rs
-
-# Step 4: Runtime container with only what's needed to run.
-# Must match the builder's glibc/libstdc++ version (cargo-chef's rust image
-# tracks a newer Debian release than bookworm) or the binary fails to start
-# with "version `GLIBC_2.38' not found".
+# Must match the builder's Debian release (glibc).
 FROM docker.io/library/debian:trixie-slim AS runtime
 
-# Install runtime dependencies
-RUN apt-get update
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates libssl3t64 ffmpeg tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --home-dir /app viz
 
-RUN apt-get install -y --no-install-recommends  libssl-dev ca-certificates libgomp1
+COPY --from=builder /out/ /usr/local/bin/
+ENV LD_LIBRARY_PATH=/usr/local/bin \
+    CLIP_VISION_MODEL_PATH=/app/models/clip-vision.onnx \
+    CLIP_TEXT_MODEL_PATH=/app/models/clip-text.onnx \
+    CLIP_TOKENIZER_PATH=/app/models/clip-tokenizer.json \
+    FFMPEG_BIN=ffmpeg \
+    TESSERACT_BIN=tesseract \
+    TG_SESSION_PATH=/app/data/ingest.session
 
-RUN apt-get clean
-
-RUN rm -rf /var/lib/apt/lists/*
-
-
-
-# Copy libtorch shared libraries
-COPY --from=builder /opt/libtorch /opt/libtorch
-
-# Set runtime environment variables
-ENV LD_LIBRARY_PATH=/opt/libtorch/lib
-
-# Copy binary
-COPY --from=builder /app/target/release/viz-rs /usr/local/bin
-
-# RESNET_WEIGHTS_PATH (embedding.rs) defaults to /app/weights/resnet34.ot - mount
-# the weights file there at runtime (see the Quadlet's Volume=), it's 87MB and
-# updated independently of the image so it isn't baked in via COPY.
 WORKDIR /app
+RUN mkdir -p /app/data && chown viz /app/data
+USER viz
 
-# Expose the port
-EXPOSE 3000
-
-# Run the application
-CMD ["/usr/local/bin/viz-rs"]
+EXPOSE 8080
+CMD ["/usr/local/bin/api"]
